@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Env
+.env
+.env.*
+*.env
+
+# Virtual env
+venv/
+.env/
+ENV/
+
+# Logs
+*.log
+
+# Docker
+*.pid
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.pytest_cache/
+
+# Coverage
+htmlcov/
+.coverage
