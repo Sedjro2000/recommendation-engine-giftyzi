@@ -13,7 +13,9 @@ _db: Database | None = None
 def connect_to_mongo() -> None:
     global _client, _db
 
-    database_url = os.getenv("DATABASE_URL", "mongodb://localhost:27017")
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
 
     logger.info(f"Connecting to MongoDB at {database_url}...")
     try:
@@ -24,10 +26,7 @@ def connect_to_mongo() -> None:
         if explicit_db:
             _db = _client[explicit_db]
         else:
-            try:
-                _db = _client.get_default_database()
-            except Exception:
-                _db = _client["giftyzi"]
+            _db = _client.get_default_database()
 
         logger.info(f"Using database: '{_db.name}'")
         logger.info("MongoDB connection established and ping successful.")
