@@ -1,0 +1,50 @@
+{
+  "romantique": {
+    "romantique": 1.0,
+    "luxe": 0.7,
+    "personnalise": 0.7,
+    "beaute": 0.6,
+    "mode": 0.6
+  },
+  "luxe": {
+    "luxe": 1.0,
+    "mode": 0.7,
+    "beaute": 0.7,
+    "romantique": 0.7
+  },
+  "amusant": {
+    "amusant": 1.0,
+    "experience": 0.7,
+    "divertissant": 0.7
+  },
+  "technologie": {
+    "technologie": 1.0,
+    "moderne": 0.8,
+    "pratique": 0.7
+  },
+  "bien_etre": {
+    "bien_etre": 1.0,
+    "beaute": 0.7,
+    "ecologique": 0.6
+  },
+  "voyage": {
+    "voyage": 1.0,
+    "experience": 0.8
+  },
+  "fait_main": {
+    "fait_main": 1.0,
+    "personnalise": 0.8
+  },
+  "minimaliste": {
+    "minimaliste": 1.0,
+    "moderne": 0.7
+  },
+  "traditionnel": {
+    "traditionnel": 1.0,
+    "decoratif": 0.6
+  },
+  "decoratif": {
+    "decoratif": 1.0,
+    "art": 0.7
+  }
+}

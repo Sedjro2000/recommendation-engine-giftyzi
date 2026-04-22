@@ -1,0 +1,47 @@
+{
+  "emotionnel": {
+    "emotionnel": 1.0,
+    "memorable": 0.9,
+    "surprenant": 0.7
+  },
+  "memorable": {
+    "memorable": 1.0,
+    "emotionnel": 0.9,
+    "collectionnable": 0.7
+  },
+  "utile": {
+    "utile": 1.0,
+    "durable": 0.8,
+    "educatif": 0.7
+  },
+  "durable": {
+    "durable": 1.0,
+    "utile": 0.8
+  },
+  "divertissant": {
+    "divertissant": 1.0,
+    "surprenant": 0.7
+  },
+  "experientiel": {
+    "experientiel": 1.0,
+    "emotionnel": 0.7,
+    "memorable": 0.8
+  },
+  "decoratif": {
+    "decoratif": 1.0,
+    "memorable": 0.6
+  },
+  "collectionnable": {
+    "collectionnable": 1.0,
+    "memorable": 0.7
+  },
+  "educatif": {
+    "educatif": 1.0,
+    "utile": 0.7
+  },
+  "surprenant": {
+    "surprenant": 1.0,
+    "divertissant": 0.7,
+    "emotionnel": 0.7
+  }
+}

@@ -29,6 +29,11 @@ TEST_PRODUCTS = [
         "stock": 10,
         "status": "active",
         "occasion_score": {"anniversaire": 0.95, "noel": 0.60},
+        "tags": {
+            "event":        [{"slug": "anniversaire", "intensity": 1.0}, {"slug": "saint_valentin", "intensity": 0.7}],
+            "relationship": [{"slug": "partenaire", "intensity": 0.8}, {"slug": "ami", "intensity": 0.6}],
+            "theme":        [{"slug": "romantique", "intensity": 0.8}, {"slug": "luxe", "intensity": 0.6}],
+        },
     },
     {
         "name": "T_Carnet voyage",
@@ -36,6 +41,10 @@ TEST_PRODUCTS = [
         "stock": 5,
         "status": "active",
         "occasion_score": {"anniversaire": 0.30, "noel": 0.40},
+        "tags": {
+            "event": [{"slug": "juste_faire_plaisir", "intensity": 0.8}],
+            "theme": [{"slug": "voyage", "intensity": 1.0}],
+        },
     },
     {
         "name": "T_Parfum epuise",
@@ -43,6 +52,10 @@ TEST_PRODUCTS = [
         "stock": 0,
         "status": "active",
         "occasion_score": {"anniversaire": 0.90},
+        "tags": {
+            "event": [{"slug": "anniversaire", "intensity": 0.8}],
+            "theme": [{"slug": "bien_etre", "intensity": 0.9}],
+        },
     },
     {
         "name": "T_Montre luxe",
@@ -50,6 +63,10 @@ TEST_PRODUCTS = [
         "stock": 8,
         "status": "active",
         "occasion_score": {"anniversaire": 0.85},
+        "tags": {
+            "event": [{"slug": "anniversaire", "intensity": 0.9}],
+            "theme": [{"slug": "luxe", "intensity": 1.0}],
+        },
     },
     {
         "name": "T_Agenda inactif",
@@ -57,6 +74,10 @@ TEST_PRODUCTS = [
         "stock": 15,
         "status": "inactive",
         "occasion_score": {"anniversaire": 0.75},
+        "tags": {
+            "event": [{"slug": "anniversaire", "intensity": 0.7}],
+            "theme": [{"slug": "fait_main", "intensity": 0.8}],
+        },
     },
     {
         "name": "T_Bougie deco",
@@ -64,6 +85,10 @@ TEST_PRODUCTS = [
         "stock": 20,
         "status": "active",
         "occasion_score": {"anniversaire": 0.65},
+        "tags": {
+            "event": [{"slug": "noel", "intensity": 0.7}],
+            "theme": [{"slug": "decoratif", "intensity": 0.9}],
+        },
     },
 ]
 

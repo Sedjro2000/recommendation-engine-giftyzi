@@ -1,0 +1,42 @@
+{
+  "partenaire": {
+    "partenaire": 1.0,
+    "un_proche": 0.7,
+    "ami": 0.6,
+    "mariage": 0.0
+  },
+  "ami": {
+    "ami": 1.0,
+    "un_proche": 0.8,
+    "collegue": 0.6,
+    "partenaire": 0.6
+  },
+  "collegue": {
+    "collegue": 1.0,
+    "ami": 0.6,
+    "un_proche": 0.5
+  },
+  "mere": {
+    "mere": 1.0,
+    "pere": 0.7,
+    "un_proche": 0.6
+  },
+  "pere": {
+    "pere": 1.0,
+    "mere": 0.7,
+    "un_proche": 0.6
+  },
+  "enfant": {
+    "enfant": 1.0,
+    "un_proche": 0.6
+  },
+  "un_proche": {
+    "un_proche": 1.0,
+    "ami": 0.8,
+    "partenaire": 0.7,
+    "collegue": 0.5,
+    "mere": 0.6,
+    "pere": 0.6,
+    "enfant": 0.6
+  }
+}

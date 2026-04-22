@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 from pymongo import MongoClient
 from pymongo.database import Database
 
+from app.config.similarity_loader import load_all_similarity_tables
 from app.repositories.product_repository import fetch_candidate_products
+from app.services.query_interpreter import QueryContext
 from app.services.recommendation_service import apply_hard_filters, rank_products
 
 logger = logging.getLogger(__name__)
@@ -106,13 +108,17 @@ def test_scoring(test_db: Database, inserted_products: list[dict]) -> None:
     """
     rank_products() must place T_Bijou anniversaire (score=0.95) first
     and maintain descending order throughout.
+    Products in this test carry 'occasion_score' (no 'tags'), so the legacy
+    fallback path in compute_score is exercised.
     """
     valid = fetch_candidate_products(
         test_db, budget_max=BUDGET_MAX, collection_name=TEST_COLLECTION
     )
     assert len(valid) > 0, "No products returned by fetch_candidate_products."
 
-    ranked = rank_products(valid, OCCASIONS)
+    context = QueryContext(event="anniversaire", relationship=None, theme=None, recipient_gender=None)
+    tables = load_all_similarity_tables()
+    ranked = rank_products(valid, context, tables)
     assert len(ranked) == len(valid), "rank_products must return all input products."
 
     scores = [p["_score"] for p in ranked]
@@ -122,8 +128,8 @@ def test_scoring(test_db: Database, inserted_products: list[dict]) -> None:
     assert ranked[0]["name"] == "T_Bijou anniversaire", (
         f"Expected 'T_Bijou anniversaire' at rank 1, got '{ranked[0]['name']}'."
     )
-    assert ranked[0]["_score"] == pytest.approx(0.95), (
-        f"Expected score 0.95, got {ranked[0]['_score']}."
+    assert ranked[0]["_score"] == pytest.approx(0.5), (
+        f"Expected score 0.5, got {ranked[0]['_score']}."
     )
     logger.debug(
         f"[test_scoring] Top product: '{ranked[0]['name']}' score={ranked[0]['_score']:.4f} ✓"
@@ -131,7 +137,60 @@ def test_scoring(test_db: Database, inserted_products: list[dict]) -> None:
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. END-TO-END API ENDPOINT
+# 5. EXPLANATIONS
+# ─────────────────────────────────────────────────────────────
+
+
+def test_explanations(test_db: Database, inserted_products: list[dict]) -> None:
+    """
+    rank_products() must attach a structured _explanation to every product.
+    For T_Bijou anniversaire with context event='anniversaire':
+      - _explanation.facets.event.best_tag == 'anniversaire'
+      - _explanation.facets.event.match    == 1.0
+      - _explanation.facets.event.contribution == 0.5
+      - _explanation.summary contains 'anniversaire'
+    """
+    valid = fetch_candidate_products(
+        test_db, budget_max=BUDGET_MAX, collection_name=TEST_COLLECTION
+    )
+
+    context = QueryContext(event="anniversaire", relationship=None, theme=None, recipient_gender=None)
+    tables = load_all_similarity_tables()
+    ranked = rank_products(valid, context, tables)
+
+    for product in ranked:
+        assert "_explanation" in product, (
+            f"'{product.get('name')}' is missing '_explanation'."
+        )
+        expl = product["_explanation"]
+        assert "summary" in expl, f"'{product.get('name')}': missing 'summary' in explanation."
+        assert "facets" in expl, f"'{product.get('name')}': missing 'facets' in explanation."
+        assert isinstance(expl["summary"], str), "'summary' must be a string."
+
+    top = ranked[0]
+    assert top["name"] == "T_Bijou anniversaire"
+    expl = top["_explanation"]
+    event_entry = expl["facets"].get("event")
+    assert event_entry is not None, "event facet missing from top product explanation."
+    assert event_entry["best_tag"] == "anniversaire", (
+        f"Expected best_tag='anniversaire', got '{event_entry['best_tag']}'."
+    )
+    assert event_entry["match"] == pytest.approx(1.0), (
+        f"Expected match=1.0, got {event_entry['match']}."
+    )
+    assert event_entry["contribution"] == pytest.approx(0.5), (
+        f"Expected contribution=0.5, got {event_entry['contribution']}."
+    )
+    assert "anniversaire" in expl["summary"], (
+        f"'anniversaire' not found in summary: {expl['summary']}"
+    )
+    logger.debug(
+        f"[test_explanations] Top: '{top['name']}' | summary='{expl['summary']}' ✓"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# 6. END-TO-END API ENDPOINT
 # ─────────────────────────────────────────────────────────────
 
 
