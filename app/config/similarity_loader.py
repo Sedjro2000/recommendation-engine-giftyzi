@@ -45,7 +45,20 @@ def get_similarity(
 ) -> float:
     """Return similarity(user_value, product_tag) for a given facet.
 
-    Returns 0.0 if the facet, user_value, or product_tag is not in the table.
+    Returns 0.0 only when both slugs are known but no relation exists.
+    Unknown facets or slugs raise explicit errors.
     """
     tables = load_all_similarity_tables()
-    return tables.get(facet, {}).get(user_value, {}).get(product_tag, 0.0)
+    if facet not in tables:
+        raise ValueError(f"unknown similarity facet '{facet}'")
+    table = tables[facet]
+    known_slugs = set(table) | {
+        slug
+        for row in table.values()
+        for slug in row
+    }
+    if user_value not in known_slugs:
+        raise ValueError(f"unknown similarity slug '{user_value}'")
+    if product_tag not in known_slugs:
+        raise ValueError(f"unknown similarity slug '{product_tag}'")
+    return table.get(user_value, {}).get(product_tag, 0.0)

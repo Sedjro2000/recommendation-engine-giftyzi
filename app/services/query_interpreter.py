@@ -14,13 +14,13 @@ class QueryContext(TypedDict):
 EVENT_KEYWORDS: dict[str, list[str]] = {
     "anniversaire": ["anniversaire", "birthday", "anniv"],
     "noel": ["noël", "noel", "christmas", "xmas"],
-    "saint_valentin": ["saint-valentin", "saint valentin", "valentin", "valentine"],
-    "fete_des_meres": ["fête des mères", "fete des meres", "mother's day", "mothers day"],
-    "fete_des_peres": ["fête des pères", "fete des peres", "father's day", "fathers day"],
+    "saint-valentin": ["saint-valentin", "saint valentin", "valentin", "valentine"],
+    "fete-des-meres": ["fête des mères", "fete des meres", "mother's day", "mothers day"],
+    "fete-des-peres": ["fête des pères", "fete des peres", "father's day", "fathers day"],
     "mariage": ["mariage", "wedding", "mariée", "mariee"],
     "naissance": ["naissance", "naître", "naitre", "nouveau-né", "nouveau né", "newborn"],
     "bapteme": ["baptême", "bapteme", "baptism"],
-    "juste_faire_plaisir": ["faire plaisir", "cadeau surprise", "sans raison", "juste parce que"],
+    "juste-faire-plaisir": ["faire plaisir", "cadeau surprise", "sans raison", "juste parce que"],
 }
 
 RELATIONSHIP_KEYWORDS: dict[str, list[str]] = {
@@ -29,21 +29,21 @@ RELATIONSHIP_KEYWORDS: dict[str, list[str]] = {
     "collegue": ["collègue", "collegue", "coworker"],
     "mere": ["mère", "mere", "maman", "mom", "mother"],
     "pere": ["père", "pere", "papa", "dad", "father"],
-    "enfant": ["enfant", "mon fils", "ma fille", "gamin", "kid", "child"],
-    "un_proche": ["un proche", "quelqu'un de proche", "proche"],
+    "enfant-relation": ["enfant", "mon fils", "ma fille", "gamin", "kid", "child"],
+    "un-proche": ["un proche", "quelqu'un de proche", "proche"],
 }
 
 THEME_KEYWORDS: dict[str, list[str]] = {
-    "romantique": ["romantique", "romantic", "amour", "love"],
-    "luxe": ["luxe", "luxueux", "premium", "haut de gamme"],
-    "amusant": ["amusant", "fun", "drôle", "rigolo", "marrant"],
-    "technologie": ["technologie", "tech", "high-tech", "high tech", "gadget", "électronique", "electronique"],
-    "bien_etre": ["bien-être", "bien etre", "wellness", "détente", "detente", "spa", "relaxation", "zen"],
-    "voyage": ["voyage", "travel", "aventure", "trip", "escapade"],
-    "fait_main": ["fait main", "artisanal", "handmade", "personnalisé", "personalise"],
-    "minimaliste": ["minimaliste", "épuré", "epure"],
-    "traditionnel": ["traditionnel", "classique", "traditional"],
-    "decoratif": ["décoratif", "decoratif", "décoration", "decoration"],
+    "romantic": ["romantique", "romantic", "amour", "love"],
+    "luxury": ["luxe", "luxueux", "premium", "haut de gamme"],
+    "funny": ["amusant", "fun", "drôle", "rigolo", "marrant"],
+    "tech": ["technologie", "tech", "high-tech", "high tech", "gadget", "électronique", "electronique"],
+    "wellness": ["bien-être", "bien etre", "wellness", "détente", "detente", "spa", "relaxation", "zen"],
+    "travel": ["voyage", "travel", "aventure", "trip", "escapade"],
+    "handmade": ["fait main", "artisanal", "handmade", "personnalisé", "personalise"],
+    "minimalist": ["minimaliste", "épuré", "epure"],
+    "traditional": ["traditionnel", "classique", "traditional"],
+    "decorative": ["décoratif", "decoratif", "décoration", "decoration"],
 }
 
 GENDER_KEYWORDS: dict[str, list[str]] = {
@@ -65,7 +65,7 @@ def interpret_query(query: str) -> QueryContext:
     Parse a natural language query and return a structured QueryContext.
 
     Detects up to one value per facet using keyword matching (first match wins).
-    Slugs are normalized to match similarity table keys (underscore format).
+    Detected values are canonical engine v1 slugs.
 
     Returns:
         QueryContext with keys: event, relationship, theme, recipient_gender.

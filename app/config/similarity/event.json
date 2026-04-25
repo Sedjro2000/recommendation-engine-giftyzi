@@ -1,11 +1,11 @@
 {
   "anniversaire": {
     "anniversaire": 1.0,
-    "juste_faire_plaisir": 0.8,
+    "juste-faire-plaisir": 0.8,
     "noel": 0.7,
-    "saint_valentin": 0.6,
-    "fete_des_meres": 0.5,
-    "fete_des_peres": 0.5,
+    "saint-valentin": 0.6,
+    "fete-des-meres": 0.5,
+    "fete-des-peres": 0.5,
     "mariage": 0.3,
     "bapteme": 0.2,
     "naissance": 0.2
@@ -13,67 +13,73 @@
   "noel": {
     "noel": 1.0,
     "anniversaire": 0.7,
-    "juste_faire_plaisir": 0.8,
-    "saint_valentin": 0.5,
-    "fete_des_meres": 0.6,
-    "fete_des_peres": 0.6,
+    "juste-faire-plaisir": 0.8,
+    "saint-valentin": 0.5,
+    "fete-des-meres": 0.6,
+    "fete-des-peres": 0.6,
     "mariage": 0.4,
     "bapteme": 0.3,
     "naissance": 0.3
   },
-  "saint_valentin": {
-    "saint_valentin": 1.0,
+  "saint-valentin": {
+    "saint-valentin": 1.0,
     "anniversaire": 0.6,
-    "juste_faire_plaisir": 0.7,
+    "juste-faire-plaisir": 0.7,
     "mariage": 0.7,
     "noel": 0.5,
-    "fete_des_meres": 0.3,
-    "fete_des_peres": 0.2,
+    "fete-des-meres": 0.3,
+    "fete-des-peres": 0.2,
     "bapteme": 0.1,
     "naissance": 0.2
   },
   "mariage": {
     "mariage": 1.0,
-    "saint_valentin": 0.7,
+    "saint-valentin": 0.7,
     "anniversaire": 0.3,
     "noel": 0.4,
-    "juste_faire_plaisir": 0.4,
+    "juste-faire-plaisir": 0.4,
     "naissance": 0.5,
     "bapteme": 0.4
+  },
+  "bapteme": {
+    "bapteme": 1.0,
+    "naissance": 0.8,
+    "mariage": 0.4,
+    "anniversaire": 0.2,
+    "noel": 0.3,
+    "saint-valentin": 0.1
+  },
+  "fete-des-meres": {
+    "fete-des-meres": 1.0,
+    "anniversaire": 0.5,
+    "noel": 0.6,
+    "juste-faire-plaisir": 0.7,
+    "fete-des-peres": 0.4,
+    "saint-valentin": 0.3
+  },
+  "fete-des-peres": {
+    "fete-des-peres": 1.0,
+    "anniversaire": 0.5,
+    "noel": 0.6,
+    "juste-faire-plaisir": 0.7,
+    "fete-des-meres": 0.4,
+    "saint-valentin": 0.2
+  },
+  "juste-faire-plaisir": {
+    "juste-faire-plaisir": 1.0,
+    "anniversaire": 0.8,
+    "noel": 0.8,
+    "saint-valentin": 0.7,
+    "fete-des-meres": 0.7,
+    "fete-des-peres": 0.7,
+    "mariage": 0.4
   },
   "naissance": {
     "naissance": 1.0,
     "bapteme": 0.8,
     "mariage": 0.5,
     "anniversaire": 0.2,
-    "noel": 0.3
-  },
-  "bapteme": {
-    "bapteme": 1.0,
-    "naissance": 0.8,
-    "mariage": 0.4,
-    "anniversaire": 0.2
-  },
-  "fete_des_meres": {
-    "fete_des_meres": 1.0,
-    "anniversaire": 0.5,
-    "noel": 0.6,
-    "juste_faire_plaisir": 0.7,
-    "fete_des_peres": 0.4
-  },
-  "fete_des_peres": {
-    "fete_des_peres": 1.0,
-    "anniversaire": 0.5,
-    "noel": 0.6,
-    "juste_faire_plaisir": 0.7,
-    "fete_des_meres": 0.4
-  },
-  "juste_faire_plaisir": {
-    "juste_faire_plaisir": 1.0,
-    "anniversaire": 0.8,
-    "noel": 0.8,
-    "saint_valentin": 0.7,
-    "fete_des_meres": 0.7,
-    "fete_des_peres": 0.7
+    "noel": 0.3,
+    "saint-valentin": 0.2
   }
 }

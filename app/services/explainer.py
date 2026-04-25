@@ -6,12 +6,8 @@ from app.services.query_interpreter import QueryContext
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTENSITY = 1.0
-
-FACET_WEIGHTS: dict[str, float] = {
-    "event": 0.5,
-    "relationship": 0.3,
-    "theme": 0.2,
-}
+EXPLAINED_SOFT_FACETS: tuple[str, ...] = ("event", "relationship", "theme")
+NEUTRAL_EXPLANATION_WEIGHT = 1.0
 
 
 def _best_tag_match(
@@ -90,7 +86,7 @@ def build_explanation(
     facets: dict[str, dict[str, Any] | None] = {}
     reasons: list[str] = []
 
-    for facet, weight in FACET_WEIGHTS.items():
+    for facet in EXPLAINED_SOFT_FACETS:
         user_value: str | None = context.get(facet)
         if user_value is None:
             facets[facet] = None
@@ -98,7 +94,12 @@ def build_explanation(
 
         facet_tags: list[dict[str, Any]] = product_tags.get(facet, [])
         table: dict[str, dict[str, float]] = tables.get(facet, {})
-        entry = _best_tag_match(user_value, facet_tags, table, weight)
+        entry = _best_tag_match(
+            user_value,
+            facet_tags,
+            table,
+            NEUTRAL_EXPLANATION_WEIGHT,
+        )
 
         if entry:
             facets[facet] = entry

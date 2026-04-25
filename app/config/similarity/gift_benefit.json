@@ -1,47 +1,50 @@
 {
-  "emotionnel": {
-    "emotionnel": 1.0,
+  "emotional": {
+    "emotional": 1.0,
     "memorable": 0.9,
-    "surprenant": 0.7
+    "surprising": 0.7,
+    "experiential": 0.7
   },
   "memorable": {
     "memorable": 1.0,
-    "emotionnel": 0.9,
-    "collectionnable": 0.7
+    "emotional": 0.9,
+    "collectible": 0.7,
+    "experiential": 0.8,
+    "decorative-benefit": 0.6
   },
-  "utile": {
-    "utile": 1.0,
-    "durable": 0.8,
-    "educatif": 0.7
+  "useful": {
+    "useful": 1.0,
+    "long-lasting": 0.8,
+    "educational": 0.7
   },
-  "durable": {
-    "durable": 1.0,
-    "utile": 0.8
+  "long-lasting": {
+    "long-lasting": 1.0,
+    "useful": 0.8
   },
-  "divertissant": {
-    "divertissant": 1.0,
-    "surprenant": 0.7
+  "entertaining": {
+    "entertaining": 1.0,
+    "surprising": 0.7
   },
-  "experientiel": {
-    "experientiel": 1.0,
-    "emotionnel": 0.7,
+  "experiential": {
+    "experiential": 1.0,
+    "emotional": 0.7,
     "memorable": 0.8
   },
-  "decoratif": {
-    "decoratif": 1.0,
+  "decorative-benefit": {
+    "decorative-benefit": 1.0,
     "memorable": 0.6
   },
-  "collectionnable": {
-    "collectionnable": 1.0,
+  "collectible": {
+    "collectible": 1.0,
     "memorable": 0.7
   },
-  "educatif": {
-    "educatif": 1.0,
-    "utile": 0.7
+  "educational": {
+    "educational": 1.0,
+    "useful": 0.7
   },
-  "surprenant": {
-    "surprenant": 1.0,
-    "divertissant": 0.7,
-    "emotionnel": 0.7
+  "surprising": {
+    "surprising": 1.0,
+    "entertaining": 0.7,
+    "emotional": 0.7
   }
 }

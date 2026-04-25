@@ -28,13 +28,14 @@ def _bson_to_json(doc: dict[str, Any]) -> dict[str, Any]:
 def fetch_candidate_products(
     db: Database,
     budget_max: float,
+    status: str = "active",
     collection_name: str = "products",
 ) -> list[dict[str, Any]]:
     """
-    Fetch products from MongoDB applying hard filters:
-      - price  <= budget_max
-      - stock  >  0
-      - status == "active"
+    Fetch products from MongoDB applying DB-level hard filters:
+      - price  <= budget_max   (from request.price)
+      - stock  >  0            (Decision #7: stock=0 => always excluded, not overridable)
+      - status == status       (from request.status; convention: "active" => eligible)
 
     The _id field is excluded from results.
     Pass collection_name to target a non-default collection (e.g. in tests).
@@ -44,10 +45,13 @@ def fetch_candidate_products(
     mongo_filter = {
         "price": {"$lte": budget_max},
         "stock": {"$gt": 0},
-        "status": "active",
+        "status": status,
     }
 
-    raw = collection.find(mongo_filter, {"_id": 0})
+    raw = collection.find(mongo_filter)
     products = [_bson_to_json(doc) for doc in raw]
-    logger.debug(f"[Repository] Hard filters applied → {len(products)} products retrieved.")
+    logger.debug(
+        f"[Repository] Hard filters applied → {len(products)} products retrieved "
+        f"(budget_max={budget_max}, status='{status}')."
+    )
     return products

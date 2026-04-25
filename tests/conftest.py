@@ -28,11 +28,14 @@ TEST_PRODUCTS = [
         "price": 30.0,
         "stock": 10,
         "status": "active",
+        "age_group": ["adulte"],
+        "recipient_gender": ["female", "unisex"],
         "occasion_score": {"anniversaire": 0.95, "noel": 0.60},
         "tags": {
-            "event":        [{"slug": "anniversaire", "intensity": 1.0}, {"slug": "saint_valentin", "intensity": 0.7}],
-            "relationship": [{"slug": "partenaire", "intensity": 0.8}, {"slug": "ami", "intensity": 0.6}],
-            "theme":        [{"slug": "romantique", "intensity": 0.8}, {"slug": "luxe", "intensity": 0.6}],
+            "event":        [{"slug": "anniversaire", "intensity": 1.0}, {"slug": "saint-valentin", "intensity": 0.7}],
+            "relationship": [{"slug": "partenaire",   "intensity": 0.8}, {"slug": "ami", "intensity": 0.6}],
+            "theme":        [{"slug": "romantic",     "intensity": 0.8}, {"slug": "luxury", "intensity": 0.6}],
+            "gift_benefit": [{"slug": "emotional",    "intensity": 1.0}],
         },
     },
     {
@@ -40,10 +43,12 @@ TEST_PRODUCTS = [
         "price": 20.0,
         "stock": 5,
         "status": "active",
+        "age_group": ["adulte", "adolescent"],
+        "recipient_gender": ["unisex"],
         "occasion_score": {"anniversaire": 0.30, "noel": 0.40},
         "tags": {
-            "event": [{"slug": "juste_faire_plaisir", "intensity": 0.8}],
-            "theme": [{"slug": "voyage", "intensity": 1.0}],
+            "event": [{"slug": "juste-faire-plaisir", "intensity": 0.8}],
+            "theme": [{"slug": "travel", "intensity": 1.0}],
         },
     },
     {
@@ -51,10 +56,12 @@ TEST_PRODUCTS = [
         "price": 45.0,
         "stock": 0,
         "status": "active",
+        "age_group": ["adulte"],
+        "recipient_gender": ["female"],
         "occasion_score": {"anniversaire": 0.90},
         "tags": {
             "event": [{"slug": "anniversaire", "intensity": 0.8}],
-            "theme": [{"slug": "bien_etre", "intensity": 0.9}],
+            "theme": [{"slug": "wellness",     "intensity": 0.9}],
         },
     },
     {
@@ -62,10 +69,12 @@ TEST_PRODUCTS = [
         "price": 200.0,
         "stock": 8,
         "status": "active",
+        "age_group": ["adulte"],
+        "recipient_gender": ["male"],
         "occasion_score": {"anniversaire": 0.85},
         "tags": {
             "event": [{"slug": "anniversaire", "intensity": 0.9}],
-            "theme": [{"slug": "luxe", "intensity": 1.0}],
+            "theme": [{"slug": "luxury",       "intensity": 1.0}],
         },
     },
     {
@@ -73,10 +82,12 @@ TEST_PRODUCTS = [
         "price": 25.0,
         "stock": 15,
         "status": "inactive",
+        "age_group": ["adulte"],
+        "recipient_gender": ["unisex"],
         "occasion_score": {"anniversaire": 0.75},
         "tags": {
             "event": [{"slug": "anniversaire", "intensity": 0.7}],
-            "theme": [{"slug": "fait_main", "intensity": 0.8}],
+            "theme": [{"slug": "handmade",     "intensity": 0.8}],
         },
     },
     {
@@ -84,10 +95,12 @@ TEST_PRODUCTS = [
         "price": 18.0,
         "stock": 20,
         "status": "active",
+        "age_group": ["adolescent", "adulte"],
+        "recipient_gender": ["unisex"],
         "occasion_score": {"anniversaire": 0.65},
         "tags": {
-            "event": [{"slug": "noel", "intensity": 0.7}],
-            "theme": [{"slug": "decoratif", "intensity": 0.9}],
+            "event": [{"slug": "noel",       "intensity": 0.7}],
+            "theme": [{"slug": "decorative", "intensity": 0.9}],
         },
     },
 ]
