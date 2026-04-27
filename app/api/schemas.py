@@ -1,5 +1,5 @@
 import math
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -159,6 +159,67 @@ class SoftPreferences(BaseModel):
     facet_weights: dict[str, float] = Field(default_factory=dict)
 
 
+class UsedSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    type: Literal["hard", "soft"]
+    values: list[Any] = Field(..., min_length=1)
+
+
+class RecommendationExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(..., min_length=1)
+    used_signals: list[UsedSignal] = Field(default_factory=list)
+    missing_signals: list[str] = Field(default_factory=list)
+    hard_constraints_respected: list[str] = Field(default_factory=list)
+
+    @field_validator("missing_signals")
+    @classmethod
+    def missing_signals_must_be_soft_facets(cls, v: list[str]) -> list[str]:
+        allowed = set(SOFT_FACET_SLUGS)
+        for signal in v:
+            if signal not in allowed:
+                raise ValueError(f"missing signal '{signal}' is not a supported soft facet")
+        return v
+
+
+class RelatedIdea(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    soft_tags: dict[str, list[str]] = Field(default_factory=dict)
+    hard_filters: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def related_idea_must_only_use_soft_facets(self) -> "RelatedIdea":
+        for facet, slugs in self.soft_tags.items():
+            allowed = SOFT_FACET_SLUGS.get(facet)
+            if allowed is None:
+                raise ValueError(f"related idea facet '{facet}' is not supported")
+            for slug in slugs:
+                _validate_slug_for_facet(facet, slug, allowed)
+        if self.hard_filters:
+            raise ValueError("related ideas must not modify hard filters in phase 8bis")
+        return self
+
+
+class SuggestedReformulation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+    source: Literal[
+        "missing_signal",
+        "low_confidence",
+        "not_enough_results",
+        "exploration",
+    ]
+
+
 class RecommendationFallback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -180,6 +241,8 @@ class RecommendationDebugInfo(BaseModel):
     scoring_formula: str
     stock_filter: str
     exact_match_score: float
+    suggestion_builder_enabled: bool = True
+    phase: Literal["8bis"] = "8bis"
 
 
 class RecommendResponse(BaseModel):
@@ -189,9 +252,10 @@ class RecommendResponse(BaseModel):
     hard_constraints: HardConstraints
     soft_preferences: SoftPreferences
     best_matches: list[dict[str, Any]]
-    related_ideas: list[dict[str, Any]]
+    explanation: RecommendationExplanation
+    related_ideas: list[RelatedIdea]
     relaxations_applied: list[dict[str, Any]]
-    suggested_reformulations: list[str]
+    suggested_reformulations: list[SuggestedReformulation]
     fallback: RecommendationFallback | None
     meta: RecommendationMeta
     debug_info: RecommendationDebugInfo

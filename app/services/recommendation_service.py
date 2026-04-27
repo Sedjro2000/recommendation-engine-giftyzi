@@ -21,6 +21,11 @@ from app.config.similarity_loader import load_all_similarity_tables
 from app.db.client import get_db
 from app.repositories.product_repository import fetch_candidate_products
 from app.services.matcher import compute_match
+from app.services.suggestion_builder import (
+    build_global_explanation,
+    build_related_ideas,
+    build_suggested_reformulations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +336,12 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
     only exposes the public API contract around the already-ranked matches.
     """
     best_matches = _with_minimal_explanations(get_recommendations(request), request)
+    explanation = build_global_explanation(request)
+    suggested_reformulations = build_suggested_reformulations(
+        request,
+        result_count=len(best_matches),
+    )
+    related_ideas = build_related_ideas(request)
 
     detected_signals: dict[str, Any] = {
         "budget_max": request.price,
@@ -375,9 +386,10 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
         hard_constraints=hard_constraints,
         soft_preferences=soft_preferences,
         best_matches=best_matches,
-        related_ideas=[],
+        explanation=explanation,
+        related_ideas=related_ideas,
         relaxations_applied=[],
-        suggested_reformulations=[],
+        suggested_reformulations=suggested_reformulations,
         fallback=fallback,
         meta=RecommendationMeta(
             result_count=len(best_matches),
@@ -388,5 +400,7 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
             scoring_formula="similarity * product_intensity * user_intensity * facet_weight",
             stock_filter="stock > 0",
             exact_match_score=1.0,
+            suggestion_builder_enabled=True,
+            phase="8bis",
         ),
     )

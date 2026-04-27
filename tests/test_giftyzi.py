@@ -20,11 +20,27 @@ from pydantic import ValidationError
 from pymongo import MongoClient
 from pymongo.database import Database
 
-from app.api.schemas import FacetWeights, HardFilters, RecommendRequest, SoftTagItem, SoftTags
+from app.api.schemas import (
+    FacetWeights,
+    HardFilters,
+    RecommendationExplanation,
+    RecommendRequest,
+    RecommendResponse,
+    RelatedIdea,
+    SoftTagItem,
+    SoftTags,
+    SuggestedReformulation,
+)
 from app.config.facets import HARD_FACET_SLUGS, OUT_OF_SCOPE_FACET_SLUGS, SIMILARITY_FACETS, SOFT_FACET_SLUGS
 from app.config.similarity_loader import get_similarity, load_all_similarity_tables
 from app.services.matcher import compute_match
 from app.services.recommendation_service import apply_hard_filters, compute_soft_score, rank_products
+from app.services.suggestion_builder import (
+    build_global_explanation,
+    build_related_ideas,
+    build_suggested_reformulations,
+    detect_missing_signals,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +57,7 @@ PUBLIC_RESPONSE_KEYS = {
     "hard_constraints",
     "soft_preferences",
     "best_matches",
+    "explanation",
     "related_ideas",
     "relaxations_applied",
     "suggested_reformulations",
@@ -222,6 +239,334 @@ def test_schema_unknown_hard_filter_field_rejected() -> None:
 def test_schema_unknown_facet_weight_rejected() -> None:
     with pytest.raises(ValidationError):
         RecommendRequest(**BASE_PAYLOAD, facet_weights={"category": 1.0})
+
+
+def test_schema_suggested_reformulation_invalid_source_rejected() -> None:
+    with pytest.raises(ValidationError):
+        SuggestedReformulation(
+            label="Préciser le lien",
+            query="Cadeau pour un proche",
+            reason="La relation aide à mieux classer les idées.",
+            source="invalid_source",
+        )
+
+
+def test_schema_related_idea_rejects_out_of_scope_soft_tag_facet() -> None:
+    with pytest.raises(ValidationError, match="not supported"):
+        RelatedIdea(
+            title="Explorer une catégorie",
+            reason="Les catégories sont hors scope pour les suggestions Phase 8 bis.",
+            soft_tags={"category": ["bijoux"]},
+            hard_filters={},
+        )
+
+
+def test_schema_related_idea_rejects_invalid_soft_tag_slug() -> None:
+    with pytest.raises(ValidationError, match="unknown slug"):
+        RelatedIdea(
+            title="Explorer un style",
+            reason="Le style peut aider à préciser l'intention.",
+            soft_tags={"theme": ["not-a-real-slug"]},
+            hard_filters={},
+        )
+
+
+def test_schema_related_idea_rejects_hard_filter_modification() -> None:
+    with pytest.raises(ValidationError, match="must not modify hard filters"):
+        RelatedIdea(
+            title="Modifier le budget",
+            reason="Les hard filters ne sont pas modifiables par les suggestions.",
+            soft_tags={"gift_benefit": ["memorable"]},
+            hard_filters={"age_group": ["adulte"]},
+        )
+
+
+def test_schema_recommendation_explanation_valid() -> None:
+    explanation = RecommendationExplanation(
+        summary="Recherche filtrée par budget puis classée par préférences cadeau.",
+        used_signals=[
+            {"name": "budget_max", "type": "hard", "values": [BUDGET_MAX]},
+            {"name": "event", "type": "soft", "values": ["anniversaire"]},
+        ],
+        missing_signals=["relationship", "theme", "gift_benefit"],
+        hard_constraints_respected=["budget_max", "stock", "status"],
+    )
+    assert explanation.used_signals[0].type == "hard"
+    assert explanation.missing_signals == ["relationship", "theme", "gift_benefit"]
+
+
+def test_schema_phase8bis_unknown_fields_rejected() -> None:
+    with pytest.raises(ValidationError):
+        RecommendationExplanation(
+            summary="Résumé",
+            used_signals=[],
+            missing_signals=[],
+            hard_constraints_respected=[],
+            unknown_field=True,
+        )
+    with pytest.raises(ValidationError):
+        RelatedIdea(
+            title="Explorer",
+            reason="Raison",
+            soft_tags={},
+            hard_filters={},
+            unknown_field=True,
+        )
+    with pytest.raises(ValidationError):
+        SuggestedReformulation(
+            label="Label",
+            query="Query",
+            reason="Reason",
+            source="missing_signal",
+            unknown_field=True,
+        )
+
+
+def test_schema_recommend_response_accepts_global_explanation() -> None:
+    response = RecommendResponse(
+        query_interpretation={
+            "normalized_query": None,
+            "detected_signals": {"budget_max": BUDGET_MAX},
+            "confidence": {},
+        },
+        hard_constraints={
+            "status": "active",
+            "budget_max": BUDGET_MAX,
+            "availability": "in_stock",
+        },
+        soft_preferences={"facet_weights": {}},
+        best_matches=[],
+        explanation={
+            "summary": "Recherche filtrée par contraintes strictes.",
+            "used_signals": [
+                {"name": "budget_max", "type": "hard", "values": [BUDGET_MAX]},
+            ],
+            "missing_signals": ["event", "relationship", "theme", "gift_benefit"],
+            "hard_constraints_respected": ["budget_max", "stock", "status"],
+        },
+        related_ideas=[],
+        relaxations_applied=[],
+        suggested_reformulations=[],
+        fallback=None,
+        meta={"result_count": 0, "limit": 10},
+        debug_info={
+            "scoring_formula": "similarity * product_intensity * user_intensity * facet_weight",
+            "stock_filter": "stock > 0",
+            "exact_match_score": 1.0,
+            "suggestion_builder_enabled": True,
+            "phase": "8bis",
+        },
+    )
+    assert response.explanation is not None
+    assert response.related_ideas == []
+    assert response.suggested_reformulations == []
+    assert response.debug_info.suggestion_builder_enabled is True
+    assert response.debug_info.phase == "8bis"
+
+
+# ─────────────────────────────────────────────────────────────
+# 2c. PHASE 8 BIS BUILDER MINIMAL (unit — pas de DB)
+# ─────────────────────────────────────────────────────────────
+
+
+def test_suggestion_builder_detect_missing_signals() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    )
+
+    assert detect_missing_signals(request) == [
+        "relationship",
+        "theme",
+        "gift_benefit",
+    ]
+
+
+def test_suggestion_builder_global_explanation_with_soft_and_hard() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        hard_filters={"age_group": ["adulte"], "recipient_gender": ["female"]},
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "theme": [{"slug": "romantic", "intensity": 0.75}],
+        },
+    )
+
+    explanation = build_global_explanation(request)
+    signals = {(signal.name, signal.type): signal.values for signal in explanation.used_signals}
+
+    assert signals[("status", "hard")] == ["active"]
+    assert signals[("budget_max", "hard")] == [BUDGET_MAX]
+    assert signals[("age_group", "hard")] == ["adulte"]
+    assert signals[("recipient_gender", "hard")] == ["female"]
+    assert signals[("event", "soft")] == ["anniversaire"]
+    assert signals[("theme", "soft")] == ["romantic"]
+    assert explanation.missing_signals == ["relationship", "gift_benefit"]
+    assert explanation.hard_constraints_respected == [
+        "budget_max",
+        "stock",
+        "status",
+        "recipient_gender",
+        "age_group",
+    ]
+
+
+def test_suggestion_builder_global_explanation_without_soft() -> None:
+    request = RecommendRequest(**BASE_PAYLOAD)
+
+    explanation = build_global_explanation(request)
+    soft_signals = [
+        signal.name for signal in explanation.used_signals if signal.type == "soft"
+    ]
+
+    assert soft_signals == []
+    assert explanation.missing_signals == [
+        "event",
+        "relationship",
+        "theme",
+        "gift_benefit",
+    ]
+    assert explanation.hard_constraints_respected == ["budget_max", "stock", "status"]
+
+
+def test_suggestion_builder_output_is_deterministic() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        hard_filters={"recipient_gender": ["unisex"]},
+        soft_tags={"gift_benefit": [{"slug": "memorable", "intensity": 0.5}]},
+    )
+
+    first = build_global_explanation(request).model_dump()
+    second = build_global_explanation(request).model_dump()
+
+    assert first == second
+    assert (
+        build_suggested_reformulations(request, result_count=3)
+        == build_suggested_reformulations(request, result_count=3)
+    )
+    assert build_related_ideas(request) == build_related_ideas(request)
+
+
+def test_suggestion_builder_reformulation_generated_when_relationship_missing() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "theme": [{"slug": "romantic", "intensity": 0.75}],
+            "gift_benefit": [{"slug": "memorable", "intensity": 0.5}],
+        },
+    )
+
+    suggestions = build_suggested_reformulations(request, result_count=3)
+
+    assert len(suggestions) == 1
+    assert suggestions[0].label == "Preciser le lien avec la personne"
+    assert suggestions[0].query == "Cadeau pour un proche"
+    assert suggestions[0].reason
+    assert suggestions[0].source == "missing_signal"
+
+
+def test_suggestion_builder_reformulation_generated_when_theme_missing() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "relationship": [{"slug": "ami", "intensity": 0.75}],
+            "gift_benefit": [{"slug": "memorable", "intensity": 0.5}],
+        },
+    )
+
+    suggestions = build_suggested_reformulations(request, result_count=3)
+
+    assert len(suggestions) == 1
+    assert suggestions[0].label == "Preciser le style du cadeau"
+    assert suggestions[0].source == "missing_signal"
+
+
+def test_suggestion_builder_reformulations_are_limited_and_structured() -> None:
+    request = RecommendRequest(**BASE_PAYLOAD)
+
+    suggestions = build_suggested_reformulations(request, result_count=0)
+    dumped = [suggestion.model_dump() for suggestion in suggestions]
+
+    assert len(suggestions) == 3
+    assert dumped == [suggestion.model_dump() for suggestion in suggestions]
+    for item in dumped:
+        assert set(item) == {"label", "query", "reason", "source"}
+        assert item["label"]
+        assert item["query"]
+        assert item["reason"]
+        assert item["source"] == "missing_signal"
+
+
+def test_suggestion_builder_reformulations_empty_when_no_signal_missing() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "relationship": [{"slug": "ami", "intensity": 0.75}],
+            "theme": [{"slug": "romantic", "intensity": 0.75}],
+            "gift_benefit": [{"slug": "memorable", "intensity": 0.5}],
+        },
+    )
+
+    assert build_suggested_reformulations(request, result_count=3) == []
+
+
+def test_suggestion_builder_related_ideas_generated_when_soft_signals_missing() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    )
+
+    ideas = build_related_ideas(request)
+    dumped = [idea.model_dump() for idea in ideas]
+
+    assert len(ideas) == 2
+    assert dumped[0]["soft_tags"] == {"relationship": ["un-proche"]}
+    assert dumped[1]["soft_tags"] == {"theme": ["personalized"]}
+    for item in dumped:
+        assert set(item) == {"title", "reason", "soft_tags", "hard_filters"}
+        assert item["title"]
+        assert item["reason"]
+        assert item["hard_filters"] == {}
+
+
+def test_suggestion_builder_related_ideas_use_only_soft_facets_and_valid_slugs() -> None:
+    request = RecommendRequest(**BASE_PAYLOAD)
+
+    ideas = build_related_ideas(request)
+    allowed = SOFT_FACET_SLUGS
+    forbidden_facets = {
+        "age_group",
+        "recipient_gender",
+        "category",
+        "recipient_personality",
+        "keywords",
+        "type",
+    }
+
+    for idea in ideas:
+        assert idea.hard_filters == {}
+        assert set(idea.soft_tags).isdisjoint(forbidden_facets)
+        for facet, slugs in idea.soft_tags.items():
+            assert facet in allowed
+            for slug in slugs:
+                assert slug in allowed[facet]
+
+
+def test_suggestion_builder_related_ideas_empty_when_no_signal_missing() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "relationship": [{"slug": "ami", "intensity": 0.75}],
+            "theme": [{"slug": "romantic", "intensity": 0.75}],
+            "gift_benefit": [{"slug": "memorable", "intensity": 0.5}],
+        },
+    )
+
+    assert build_related_ideas(request) == []
 
 
 # ─────────────────────────────────────────────────────────────
@@ -899,6 +1244,7 @@ def _assert_public_response_shape(body: dict) -> None:
     assert isinstance(body["hard_constraints"], dict)
     assert isinstance(body["soft_preferences"], dict)
     assert isinstance(body["best_matches"], list)
+    assert isinstance(body["explanation"], dict)
     assert isinstance(body["related_ideas"], list)
     assert isinstance(body["relaxations_applied"], list)
     assert isinstance(body["suggested_reformulations"], list)
@@ -909,6 +1255,8 @@ def _assert_public_response_shape(body: dict) -> None:
     assert body["meta"]["limit"] == 10
     assert body["debug_info"]["stock_filter"] == "stock > 0"
     assert body["debug_info"]["exact_match_score"] == 1.0
+    assert body["debug_info"]["suggestion_builder_enabled"] is True
+    assert body["debug_info"]["phase"] == "8bis"
 
 
 def test_recommend_endpoint_valid(
@@ -923,9 +1271,131 @@ def test_recommend_endpoint_valid(
     _assert_public_response_shape(body)
     assert len(body["best_matches"]) <= 10
     assert body["fallback"] is None
+    assert body["relaxations_applied"] == []
     assert body["hard_constraints"]["budget_max"] == BUDGET_MAX
     assert body["hard_constraints"]["availability"] == "in_stock"
     assert body["query_interpretation"]["detected_signals"]["budget_max"] == BUDGET_MAX
+
+
+def test_recommend_endpoint_returns_global_explanation(
+    inserted_products: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
+    from app.main import app
+
+    payload = {
+        **BASE_PAYLOAD,
+        "hard_filters": {"age_group": ["adulte"], "recipient_gender": ["female"]},
+        "soft_tags": {
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "theme": [{"slug": "romantic", "intensity": 0.75}],
+        },
+    }
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/recommend", json=payload)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    explanation = body["explanation"]
+    signals = {
+        (signal["name"], signal["type"]): signal["values"]
+        for signal in explanation["used_signals"]
+    }
+
+    assert signals[("status", "hard")] == ["active"]
+    assert signals[("budget_max", "hard")] == [BUDGET_MAX]
+    assert signals[("age_group", "hard")] == ["adulte"]
+    assert signals[("recipient_gender", "hard")] == ["female"]
+    assert signals[("event", "soft")] == ["anniversaire"]
+    assert signals[("theme", "soft")] == ["romantic"]
+    assert explanation["missing_signals"] == ["relationship", "gift_benefit"]
+    assert explanation["hard_constraints_respected"] == [
+        "budget_max",
+        "stock",
+        "status",
+        "recipient_gender",
+        "age_group",
+    ]
+
+    if body["best_matches"]:
+        assert "_explanation" in body["best_matches"][0]
+
+
+def test_recommend_endpoint_returns_suggested_reformulations(
+    inserted_products: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
+    from app.main import app
+
+    payload = {
+        **BASE_PAYLOAD,
+        "soft_tags": {"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    }
+    with TestClient(app) as client:
+        first_resp = client.post("/api/v1/recommend", json=payload)
+        second_resp = client.post("/api/v1/recommend", json=payload)
+
+    assert first_resp.status_code == 200
+    assert second_resp.status_code == 200
+    first = first_resp.json()["suggested_reformulations"]
+    second = second_resp.json()["suggested_reformulations"]
+
+    assert first == second
+    assert len(first) == 3
+    for item in first:
+        assert set(item) == {"label", "query", "reason", "source"}
+        assert item["label"]
+        assert item["query"]
+        assert item["reason"]
+        assert item["source"] == "missing_signal"
+        assert "hard_filters" not in item
+        assert "category" not in item
+        assert "recipient_personality" not in item
+
+
+def test_recommend_endpoint_returns_related_ideas(
+    inserted_products: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
+    from app.main import app
+
+    payload = {
+        **BASE_PAYLOAD,
+        "soft_tags": {"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    }
+    with TestClient(app) as client:
+        first_resp = client.post("/api/v1/recommend", json=payload)
+        second_resp = client.post("/api/v1/recommend", json=payload)
+
+    assert first_resp.status_code == 200
+    assert second_resp.status_code == 200
+    first = first_resp.json()["related_ideas"]
+    second = second_resp.json()["related_ideas"]
+
+    assert first == second
+    assert len(first) == 2
+    for item in first:
+        assert set(item) == {"title", "reason", "soft_tags", "hard_filters"}
+        assert item["title"]
+        assert item["reason"]
+        assert item["hard_filters"] == {}
+        assert set(item["soft_tags"]).isdisjoint(
+            {
+                "age_group",
+                "recipient_gender",
+                "category",
+                "recipient_personality",
+                "keywords",
+                "type",
+            }
+        )
+        for facet, slugs in item["soft_tags"].items():
+            assert facet in SOFT_FACET_SLUGS
+            for slug in slugs:
+                assert slug in SOFT_FACET_SLUGS[facet]
 
 
 def test_unknown_field_rejected_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
