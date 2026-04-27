@@ -125,7 +125,7 @@ class RecommendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = Field(..., min_length=1)
-    price: float = Field(..., ge=0.0)
+    budget_max: float = Field(..., ge=0.0)
     hard_filters: HardFilters = Field(default_factory=HardFilters)
     soft_tags: SoftTags = Field(default_factory=SoftTags)
     facet_weights: FacetWeights = Field(default_factory=FacetWeights)

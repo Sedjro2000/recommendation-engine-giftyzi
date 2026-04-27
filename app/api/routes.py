@@ -13,7 +13,7 @@ router = APIRouter()
 @router.post("/recommend", response_model=RecommendResponse)
 def recommend(request: RecommendRequest) -> RecommendResponse:
     logger.info(
-        f"[API] POST /recommend | price={request.price} | status='{request.status}'"
+        f"[API] POST /recommend | budget_max={request.budget_max} | status='{request.status}'"
     )
     try:
         response = build_recommendation_response(request)

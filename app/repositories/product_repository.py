@@ -33,7 +33,7 @@ def fetch_candidate_products(
 ) -> list[dict[str, Any]]:
     """
     Fetch products from MongoDB applying DB-level hard filters:
-      - price  <= budget_max   (from request.price)
+      - price  <= budget_max   (from request.budget_max)
       - stock  >  0            (Decision #7: stock=0 => always excluded, not overridable)
       - status == status       (from request.status; convention: "active" => eligible)
 

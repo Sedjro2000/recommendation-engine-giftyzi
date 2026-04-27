@@ -49,7 +49,7 @@ BUDGET_MAX = 100.0
 
 BASE_PAYLOAD: dict = {
     "status": "active",
-    "price": BUDGET_MAX,
+    "budget_max": BUDGET_MAX,
 }
 
 PUBLIC_RESPONSE_KEYS = {
@@ -104,18 +104,20 @@ def test_insert_and_read_products(
 def test_schema_valid_minimal() -> None:
     r = RecommendRequest(**BASE_PAYLOAD)
     assert r.status == "active"
-    assert r.price == BUDGET_MAX
+    assert r.budget_max == BUDGET_MAX
 
 
 def test_schema_valid_full() -> None:
     r = RecommendRequest(
         status="active",
-        price=50.0,
+        budget_max=50.0,
         hard_filters={"age_group": ["adulte"], "recipient_gender": ["female"]},
         soft_tags={"event": [{"slug": "anniversaire", "intensity": 0.75}]},
         facet_weights={"event": 1.5},
     )
+    assert r.budget_max == 50.0
     assert r.hard_filters.age_group == ["adulte"]
+    assert r.hard_filters.recipient_gender == ["female"]
     assert r.soft_tags.event[0].slug == "anniversaire"
     assert r.facet_weights.event == 1.5
 
@@ -167,9 +169,35 @@ def test_schema_intensity_above_1_rejected() -> None:
         )  # 1.5 not in VALID_INTENSITIES
 
 
-def test_schema_negative_price_rejected() -> None:
+def test_schema_negative_budget_max_rejected() -> None:
     with pytest.raises(ValidationError):
-        RecommendRequest(**{**BASE_PAYLOAD, "price": -1.0})
+        RecommendRequest(**{**BASE_PAYLOAD, "budget_max": -1.0})
+
+
+def test_schema_price_rejected() -> None:
+    with pytest.raises(ValidationError):
+        RecommendRequest(status="active", price=BUDGET_MAX)
+
+
+def test_schema_budget_max_required() -> None:
+    payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "budget_max"}
+    with pytest.raises(ValidationError):
+        RecommendRequest(**payload)
+
+
+@pytest.mark.parametrize("field", ["recipient_gender", "age_group"])
+def test_schema_hard_filters_rejected_top_level(field: str) -> None:
+    with pytest.raises(ValidationError):
+        RecommendRequest(**BASE_PAYLOAD, **{field: ["adulte"]})
+
+
+def test_schema_hard_filters_recipient_gender_and_age_group_accepted() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        hard_filters={"recipient_gender": ["female"], "age_group": ["adulte"]},
+    )
+    assert request.hard_filters.recipient_gender == ["female"]
+    assert request.hard_filters.age_group == ["adulte"]
 
 
 @pytest.mark.parametrize("field", ["product_id", "stock"])
@@ -1432,11 +1460,11 @@ def test_status_required_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 422
 
 
-def test_price_required_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_budget_max_required_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
     from app.main import app
 
-    payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "price"}
+    payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "budget_max"}
     client = TestClient(app)
     resp = client.post("/api/v1/recommend", json=payload)
     assert resp.status_code == 422
@@ -1450,7 +1478,7 @@ def test_public_response_fallback_when_no_matches(
     from app.main import app
 
     with TestClient(app) as client:
-        resp = client.post("/api/v1/recommend", json={**BASE_PAYLOAD, "price": 1.0})
+        resp = client.post("/api/v1/recommend", json={**BASE_PAYLOAD, "budget_max": 1.0})
     assert resp.status_code == 200
     body = resp.json()
     _assert_public_response_shape(body)
@@ -1488,7 +1516,7 @@ def test_status_inactive_excluded_endpoint(
     assert not any(m["name"] == "T_Agenda inactif" for m in matches)
 
 
-def test_price_above_budget_excluded_endpoint(
+def test_product_price_above_budget_max_excluded_endpoint(
     inserted_products: list[dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
