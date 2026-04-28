@@ -69,6 +69,18 @@ score = occasion_score
 ### Endpoint
 
 ```
+GET /api/v1/health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "GIFTYZI Recommendation Engine",
+  "version": "0.1.0"
+}
+```
+
+```
 POST /api/v1/recommend
 ```
 
@@ -80,6 +92,9 @@ POST /api/v1/recommend
   "budget_max": 10000
 }
 ```
+
+`budget_max`, `theme` et `gift_benefit` peuvent être omis dans le payload.
+Quand ils sont fournis, leur rôle dans le filtrage ou le scoring reste inchangé.
 
 ### Output
 

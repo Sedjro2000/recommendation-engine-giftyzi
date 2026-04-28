@@ -125,10 +125,18 @@ class RecommendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = Field(..., min_length=1)
-    budget_max: float = Field(..., ge=0.0)
+    budget_max: float | None = Field(default=None, ge=0.0)
     hard_filters: HardFilters = Field(default_factory=HardFilters)
     soft_tags: SoftTags = Field(default_factory=SoftTags)
     facet_weights: FacetWeights = Field(default_factory=FacetWeights)
+
+
+class HealthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    service: str = "GIFTYZI Recommendation Engine"
+    version: str = "0.1.0"
 
 
 class QueryInterpretation(BaseModel):
@@ -143,7 +151,7 @@ class HardConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str
-    budget_max: float
+    budget_max: float | None = None
     availability: str
     recipient_gender: list[str] | None = None
     age_group: list[str] | None = None

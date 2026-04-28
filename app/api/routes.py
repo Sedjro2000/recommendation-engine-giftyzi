@@ -2,12 +2,22 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app.api.schemas import RecommendRequest, RecommendResponse
+from app.api.schemas import HealthResponse, RecommendRequest, RecommendResponse
 from app.services.recommendation_service import build_recommendation_response
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Health check",
+    tags=["Health"],
+)
+def health() -> HealthResponse:
+    return HealthResponse()
 
 
 @router.post("/recommend", response_model=RecommendResponse)

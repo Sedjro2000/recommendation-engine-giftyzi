@@ -179,10 +179,10 @@ def test_schema_price_rejected() -> None:
         RecommendRequest(status="active", price=BUDGET_MAX)
 
 
-def test_schema_budget_max_required() -> None:
+def test_schema_budget_max_optional() -> None:
     payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "budget_max"}
-    with pytest.raises(ValidationError):
-        RecommendRequest(**payload)
+    request = RecommendRequest(**payload)
+    assert request.budget_max is None
 
 
 @pytest.mark.parametrize("field", ["recipient_gender", "age_group"])
@@ -1287,6 +1287,20 @@ def _assert_public_response_shape(body: dict) -> None:
     assert body["debug_info"]["phase"] == "8bis"
 
 
+def test_health_endpoint() -> None:
+    from app.main import app
+
+    client = TestClient(app)
+    resp = client.get("/api/v1/health")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "status": "ok",
+        "service": "GIFTYZI Recommendation Engine",
+        "version": "0.1.0",
+    }
+
+
 def test_recommend_endpoint_valid(
     inserted_products: list[dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1460,14 +1474,25 @@ def test_status_required_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 422
 
 
-def test_budget_max_required_by_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_budget_max_optional_by_endpoint(
+    inserted_products: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("PRODUCTS_COLLECTION", TEST_COLLECTION)
     from app.main import app
 
     payload = {k: v for k, v in BASE_PAYLOAD.items() if k != "budget_max"}
-    client = TestClient(app)
-    resp = client.post("/api/v1/recommend", json=payload)
-    assert resp.status_code == 422
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/recommend", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["hard_constraints"]["budget_max"] is None
+    assert "budget_max" not in body["query_interpretation"]["detected_signals"]
+    assert "budget_max" not in body["explanation"]["hard_constraints_respected"]
+    assert all(
+        signal["name"] != "budget_max"
+        for signal in body["explanation"]["used_signals"]
+    )
 
 
 def test_public_response_fallback_when_no_matches(

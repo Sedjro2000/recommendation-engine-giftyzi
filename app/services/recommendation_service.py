@@ -202,8 +202,8 @@ def rank_products(
 def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
     """
     Recommendation pipeline v2 (Phase 2.5):
-      1. Fetch candidate products — DB-level hard filters: price <= request.budget_max,
-         stock > 0, status == request.status
+      1. Fetch candidate products — DB-level hard filters: optional
+         price <= request.budget_max, stock > 0, status == request.status
       2. Apply request-level hard filters: age_group, recipient_gender
       3. Score candidates using soft_tags and facet_weights (Étapes 4-5)
       4. Return top N results, sorted by score descending
@@ -212,7 +212,7 @@ def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
     collection_name = os.getenv("PRODUCTS_COLLECTION", "products")
 
     # Step 1: DB-level hard filtering
-    #   - price  <= request.budget_max  (budget)
+    #   - price  <= request.budget_max  (budget, when provided)
     #   - stock  >  0              (Decision #7: stock=0 always excluded)
     #   - status == request.status (convention: "active" => eligible)
     products = fetch_candidate_products(
@@ -223,7 +223,7 @@ def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
     )
     logger.debug(
         f"[Service] {len(products)} products after DB hard filtering "
-        f"(collection='{collection_name}', price<={request.budget_max}, status='{request.status}')."
+        f"(collection='{collection_name}', budget_max={request.budget_max}, status='{request.status}')."
     )
 
     # Step 2: Request-level hard filtering (age_group, recipient_gender)
@@ -343,9 +343,9 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
     )
     related_ideas = build_related_ideas(request)
 
-    detected_signals: dict[str, Any] = {
-        "budget_max": request.budget_max,
-    }
+    detected_signals: dict[str, Any] = {}
+    if request.budget_max is not None:
+        detected_signals["budget_max"] = request.budget_max
     for facet in KNOWN_FACETS:
         slugs = _soft_tag_slugs(request.soft_tags, facet)
         if slugs:

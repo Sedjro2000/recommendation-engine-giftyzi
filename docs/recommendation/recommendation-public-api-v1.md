@@ -21,12 +21,32 @@ caller must not send `stock` as part of the recommendation request.
 POST /api/v1/recommend
 ```
 
+## Health Endpoint
+
+```http
+GET /api/v1/health
+```
+
+The health endpoint confirms that the FastAPI service is reachable. It does
+not run recommendation scoring and does not expose secrets, database URLs, or
+environment values.
+
+### Health Response
+
+```json
+{
+  "status": "ok",
+  "service": "GIFTYZI Recommendation Engine",
+  "version": "0.1.0"
+}
+```
+
 ## Official Request
 
 ```json
 {
   "status": "active",
-  "price": 80,
+  "budget_max": 80,
   "hard_filters": {
     "recipient_gender": ["female"],
     "age_group": ["adulte"]
@@ -51,7 +71,7 @@ POST /api/v1/recommend
 | Field | Meaning | Status |
 |---|---|---|
 | `status` | Product eligibility status filter, usually `active`. | Required |
-| `price` | User budget maximum, mapped from `budgetMax`. Products must satisfy `price <= budget_max`. | Required |
+| `budget_max` | User budget maximum. When provided, products must satisfy `price <= budget_max`. | Optional |
 | `hard_filters.recipient_gender` | Strict recipient gender filter. | Optional |
 | `hard_filters.age_group` | Strict age group filter. | Optional |
 | `soft_tags.event` | Scored event preference. | Optional |
@@ -60,6 +80,12 @@ POST /api/v1/recommend
 | `soft_tags.gift_benefit` | Scored gift benefit preference. | Optional |
 | `soft_tags.*[].intensity` | User signal strength. | Required per soft tag |
 | `facet_weights` | Facet weights transported from Next.js `Facet.weight`. | Optional |
+
+`budget_max`, `soft_tags.theme`, and `soft_tags.gift_benefit` are optional in
+the request payload. Omitting them only means the user did not provide these
+signals. It does not change their architectural role or scoring weight: when
+they are present, they are applied exactly like any other budget constraint or
+soft scoring facet.
 
 ## Forbidden Request Fields
 

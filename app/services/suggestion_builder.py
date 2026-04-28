@@ -104,9 +104,12 @@ def _used_signal(name: str, signal_type: str, values: list[Any]) -> dict[str, An
 def build_global_explanation(request: RecommendRequest) -> RecommendationExplanation:
     used_signals: list[dict[str, Any]] = [
         _used_signal("status", "hard", [request.status]),
-        _used_signal("budget_max", "hard", [request.budget_max]),
     ]
-    hard_constraints_respected = ["budget_max", "stock", "status"]
+    hard_constraints_respected = ["stock", "status"]
+
+    if request.budget_max is not None:
+        used_signals.append(_used_signal("budget_max", "hard", [request.budget_max]))
+        hard_constraints_respected.insert(0, "budget_max")
 
     if request.hard_filters.recipient_gender:
         used_signals.append(
