@@ -10,7 +10,8 @@
     "luxury": 1.0,
     "fashion": 0.7,
     "beauty": 0.7,
-    "romantic": 0.7
+    "romantic": 0.7,
+    "drink": 0.4
   },
   "funny": {
     "funny": 1.0,
@@ -24,7 +25,8 @@
   "wellness": {
     "wellness": 1.0,
     "beauty": 0.7,
-    "eco-friendly": 0.6
+    "eco-friendly": 0.6,
+    "food": 0.4
   },
   "travel": {
     "travel": 1.0,
@@ -40,7 +42,9 @@
   },
   "traditional": {
     "traditional": 1.0,
-    "decorative": 0.6
+    "decorative": 0.6,
+    "food": 0.5,
+    "drink": 0.4
   },
   "decorative": {
     "decorative": 1.0,
@@ -64,7 +68,9 @@
   "experience": {
     "experience": 1.0,
     "funny": 0.7,
-    "travel": 0.8
+    "travel": 0.8,
+    "food": 0.5,
+    "drink": 0.5
   },
   "fashion": {
     "fashion": 1.0,
@@ -84,5 +90,19 @@
   "practical": {
     "practical": 1.0,
     "tech": 0.7
+  },
+  "food": {
+    "food": 1.0,
+    "drink": 0.7,
+    "traditional": 0.5,
+    "experience": 0.5,
+    "wellness": 0.4
+  },
+  "drink": {
+    "drink": 1.0,
+    "food": 0.7,
+    "experience": 0.5,
+    "traditional": 0.4,
+    "luxury": 0.4
   }
 }
