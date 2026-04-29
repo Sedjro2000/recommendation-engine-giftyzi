@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +18,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=== GIFTYZI Recommendation Engine starting up ===")
+    logger.info(
+        "[Config] PRODUCTS_COLLECTION=%s",
+        os.getenv("PRODUCTS_COLLECTION", "ProductRecommendationProjection"),
+    )
     connect_to_mongo()
     yield
     close_mongo_connection()

@@ -9,9 +9,10 @@ Test fixtures for GIFTYZI.
 import logging
 import os
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
+from fastapi.testclient import TestClient
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -106,6 +107,68 @@ TEST_PRODUCTS = [
 ]
 
 
+def _redact_mongo_url(database_url: str) -> str:
+    if "@" not in database_url:
+        return database_url
+    scheme, rest = database_url.split("://", 1)
+    _, host_and_path = rest.split("@", 1)
+    return f"{scheme}://<redacted>@{host_and_path}"
+
+
+@pytest.fixture
+def api_client() -> TestClient:
+    from app.main import app
+
+    return TestClient(app)
+
+
+@pytest.fixture
+def nextjs_recommendation_payload() -> dict[str, Any]:
+    return {
+        "status": "active",
+        "budget_max": 80.0,
+        "hard_filters": {
+            "recipient_gender": ["female"],
+            "age_group": ["adulte"],
+        },
+        "soft_tags": {
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "relationship": [{"slug": "partenaire", "intensity": 1.0}],
+            "theme": [{"slug": "romantic", "intensity": 1.0}],
+            "gift_benefit": [{"slug": "emotional", "intensity": 1.0}],
+        },
+        "facet_weights": {
+            "event": 1.3,
+            "relationship": 1.1,
+            "theme": 0.9,
+            "gift_benefit": 1.0,
+        },
+    }
+
+
+@pytest.fixture
+def mock_ranked_products() -> list[dict[str, Any]]:
+    return [
+        {
+            "_id": "product-001",
+            "product_id": "gift-romantic-001",
+            "name": "Bougie bijou romantique",
+            "price": 49.9,
+            "stock": 7,
+            "status": "active",
+            "age_group": ["adulte"],
+            "recipient_gender": ["female", "unisex"],
+            "tags": {
+                "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                "relationship": [{"slug": "partenaire", "intensity": 0.8}],
+                "theme": [{"slug": "romantic", "intensity": 1.0}],
+                "gift_benefit": [{"slug": "emotional", "intensity": 0.9}],
+            },
+            "_score": 3.42,
+        }
+    ]
+
+
 @pytest.fixture(scope="session")
 def mongo_client() -> Generator[MongoClient, None, None]:
     database_url = os.getenv("DATABASE_URL")
@@ -115,7 +178,7 @@ def mongo_client() -> Generator[MongoClient, None, None]:
     client = MongoClient(database_url, serverSelectionTimeoutMS=5000)
     try:
         client.admin.command("ping")
-        logger.info(f"[conftest] MongoDB ping OK — {database_url[:40]}...")
+        logger.info(f"[conftest] MongoDB ping OK - {_redact_mongo_url(database_url)}")
     except Exception as exc:
         pytest.fail(f"MongoDB connection failed: {exc}")
 

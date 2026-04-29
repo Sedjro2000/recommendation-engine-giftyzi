@@ -209,7 +209,10 @@ def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
       4. Return top N results, sorted by score descending
     """
     db = get_db()
-    collection_name = os.getenv("PRODUCTS_COLLECTION", "products")
+    collection_name = os.getenv(
+        "PRODUCTS_COLLECTION",
+        "ProductRecommendationProjection",
+    )
 
     # Step 1: DB-level hard filtering
     #   - price  <= request.budget_max  (budget, when provided)

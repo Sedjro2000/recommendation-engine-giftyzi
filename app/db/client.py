@@ -10,6 +10,14 @@ _client: MongoClient | None = None
 _db: Database | None = None
 
 
+def _redact_mongo_url(database_url: str) -> str:
+    if "@" not in database_url:
+        return database_url
+    scheme, rest = database_url.split("://", 1)
+    _, host_and_path = rest.split("@", 1)
+    return f"{scheme}://<redacted>@{host_and_path}"
+
+
 def connect_to_mongo() -> None:
     global _client, _db
 
@@ -17,7 +25,7 @@ def connect_to_mongo() -> None:
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is not set.")
 
-    logger.info(f"Connecting to MongoDB at {database_url}...")
+    logger.info(f"Connecting to MongoDB at {_redact_mongo_url(database_url)}...")
     try:
         _client = MongoClient(database_url, serverSelectionTimeoutMS=5000)
         _client.admin.command("ping")

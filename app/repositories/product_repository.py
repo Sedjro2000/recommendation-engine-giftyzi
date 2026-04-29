@@ -7,6 +7,8 @@ from pymongo.database import Database
 
 logger = logging.getLogger(__name__)
 
+SOFT_TAG_FACETS = {"event", "relationship", "theme", "gift_benefit"}
+
 
 def _bson_to_json(doc: dict[str, Any]) -> dict[str, Any]:
     """Recursively convert BSON-specific types to JSON-serializable equivalents."""
@@ -25,6 +27,23 @@ def _bson_to_json(doc: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _normalize_projection_doc(doc: dict[str, Any]) -> dict[str, Any]:
+    """Expose recommendation projection fields in the shape used by the engine."""
+    hard_filters = doc.get("hard_filters", {})
+    soft_tags = doc.get("soft_tags", {})
+
+    normalized = {
+        **doc,
+        "age_group": hard_filters.get("age_group", []),
+        "recipient_gender": hard_filters.get("recipient_gender", []),
+        "tags": {
+            facet: soft_tags.get(facet, [])
+            for facet in SOFT_TAG_FACETS
+        },
+    }
+    return normalized
+
+
 def fetch_candidate_products(
     db: Database,
     budget_max: float | None,
@@ -40,6 +59,7 @@ def fetch_candidate_products(
     The _id field is excluded from results.
     Pass collection_name to target a non-default collection (e.g. in tests).
     """
+    logger.info("[Repository] Using collection=%s", collection_name)
     collection = db[collection_name]
 
     mongo_filter: dict[str, Any] = {
@@ -50,7 +70,11 @@ def fetch_candidate_products(
         mongo_filter["price"] = {"$lte": budget_max}
 
     raw = collection.find(mongo_filter)
-    products = [_bson_to_json(doc) for doc in raw]
+    raw_products = list(raw)
+    if collection_name == "ProductRecommendationProjection":
+        raw_products = [_normalize_projection_doc(doc) for doc in raw_products]
+
+    products = [_bson_to_json(doc) for doc in raw_products]
     logger.debug(
         f"[Repository] Hard filters applied → {len(products)} products retrieved "
         f"(budget_max={budget_max}, status='{status}')."

@@ -41,7 +41,7 @@ class SoftTagItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     slug: str = Field(..., min_length=1)
-    intensity: float
+    intensity: float = Field(..., strict=True)
 
     @field_validator("intensity")
     @classmethod
@@ -125,7 +125,7 @@ class RecommendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str = Field(..., min_length=1)
-    budget_max: float | None = Field(default=None, ge=0.0)
+    budget_max: float | None = Field(default=None, ge=0.0, strict=True)
     hard_filters: HardFilters = Field(default_factory=HardFilters)
     soft_tags: SoftTags = Field(default_factory=SoftTags)
     facet_weights: FacetWeights = Field(default_factory=FacetWeights)
