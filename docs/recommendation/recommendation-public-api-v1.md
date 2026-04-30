@@ -80,6 +80,8 @@ environment values.
 | `soft_tags.gift_benefit` | Scored gift benefit preference. | Optional |
 | `soft_tags.*[].intensity` | User signal strength. | Required per soft tag |
 | `facet_weights` | Facet weights transported from Next.js `Facet.weight`. | Optional |
+| `limit` | Page size requested by the client. Clamped to `RECOMMENDATION_MAX_LIMIT`. | Optional |
+| `offset` | Zero-based result offset for stateless pagination. | Optional |
 
 `budget_max`, `soft_tags.theme`, and `soft_tags.gift_benefit` are optional in
 the request payload. Omitting them only means the user did not provide these
@@ -103,6 +105,12 @@ The request schema uses `extra="forbid"`. These fields are rejected if sent:
 
 ```json
 {
+  "total_candidates": 0,
+  "returned_count": 0,
+  "limit": 24,
+  "offset": 0,
+  "has_more": false,
+  "next_offset": null,
   "query_interpretation": {
     "normalized_query": null,
     "detected_signals": {
@@ -142,7 +150,12 @@ The request schema uses `extra="forbid"`. These fields are rejected if sent:
   "fallback": null,
   "meta": {
     "result_count": 0,
-    "limit": 10,
+    "limit": 24,
+    "offset": 0,
+    "total_candidates": 0,
+    "returned_count": 0,
+    "has_more": false,
+    "next_offset": null,
     "contract_version": "recommendation_public_v1"
   },
   "debug_info": {
@@ -157,16 +170,65 @@ The request schema uses `extra="forbid"`. These fields are rejected if sent:
 
 | Block | Semantics |
 |---|---|
+| `total_candidates` | Number of candidates after HARD filters, scoring, and ranking, before pagination. |
+| `returned_count` | Number of products returned in the current page. |
+| `limit` | Effective limit after default fallback and max clamp. |
+| `offset` | Effective offset applied to ranked results. |
+| `has_more` | `true` when another stateless page is available. |
+| `next_offset` | Offset to send for the next page, or `null` when the current page is final. |
 | `query_interpretation` | Echoes the structured signals received by FastAPI. No NLP interpretation is performed in v1. |
 | `hard_constraints` | Lists strict constraints actually applied by the engine. |
 | `soft_preferences` | Lists scored preferences and transmitted facet weights. |
-| `best_matches` | Ranked recommended products. Each match keeps `_score`; v1 also includes minimal `_explanation`. |
+| `best_matches` | Current page of ranked recommended products. Each match keeps `_score`; v1 also includes minimal `_explanation`. |
 | `related_ideas` | Empty in v1. Must never violate hard filters when implemented later. |
 | `relaxations_applied` | Empty in v1. No relaxation is invented. |
 | `suggested_reformulations` | Empty in v1. No reformulation is invented. |
 | `fallback` | `null` when matches exist; explicit `no_matches` object when no product matches. |
 | `meta` | Public response metadata including result count, limit, and contract version. |
 | `debug_info` | Non-sensitive engine information only. No secrets, URLs, tokens, or environment variables. |
+
+## Pagination
+
+Pagination is stateless and is applied after scoring and ranking:
+
+1. Fetch all candidates valid for DB-level HARD filters.
+2. Apply request-level HARD filters.
+3. Score every remaining candidate.
+4. Sort/rank every scored candidate deterministically.
+5. Return `ranked_results[offset : offset + limit]`.
+
+The engine uses these environment variables:
+
+```env
+RECOMMENDATION_DEFAULT_LIMIT=24
+RECOMMENDATION_MAX_LIMIT=100
+```
+
+`RECOMMENDATION_RESULT_LIMIT` is deprecated. If `RECOMMENDATION_DEFAULT_LIMIT`
+is absent, a positive numeric legacy value is still accepted as a migration
+fallback. Legacy unbounded values such as `all` fall back to the safe default.
+
+Page 1 request:
+
+```json
+{
+  "status": "active",
+  "budget_max": 80,
+  "limit": 24,
+  "offset": 0
+}
+```
+
+Next page request:
+
+```json
+{
+  "status": "active",
+  "budget_max": 80,
+  "limit": 24,
+  "offset": 24
+}
+```
 
 ## Fallback
 

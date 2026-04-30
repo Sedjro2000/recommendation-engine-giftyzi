@@ -7,6 +7,12 @@ from app.services import recommendation_service
 
 
 PUBLIC_RESPONSE_KEYS = {
+    "total_candidates",
+    "returned_count",
+    "limit",
+    "offset",
+    "has_more",
+    "next_offset",
     "query_interpretation",
     "hard_constraints",
     "soft_preferences",
@@ -46,8 +52,33 @@ def _stub_ranked_products(
     )
 
 
+def _ranked_product(index: int) -> dict[str, Any]:
+    return {
+        "_id": f"product-{index:03d}",
+        "product_id": f"gift-{index:03d}",
+        "name": f"Produit {index:03d}",
+        "price": 10.0,
+        "stock": 5,
+        "status": "active",
+        "age_group": ["adulte"],
+        "recipient_gender": ["unisex"],
+        "tags": {},
+        "_score": float(200 - index),
+    }
+
+
+def _ranked_products(count: int) -> list[dict[str, Any]]:
+    return [_ranked_product(index) for index in range(count)]
+
+
 def _assert_public_response_contract(body: dict[str, Any]) -> None:
     assert set(body) == PUBLIC_RESPONSE_KEYS
+    assert isinstance(body["total_candidates"], int)
+    assert isinstance(body["returned_count"], int)
+    assert isinstance(body["limit"], int)
+    assert isinstance(body["offset"], int)
+    assert isinstance(body["has_more"], bool)
+    assert body["next_offset"] is None or isinstance(body["next_offset"], int)
     assert isinstance(body["query_interpretation"], dict)
     assert isinstance(body["hard_constraints"], dict)
     assert isinstance(body["soft_preferences"], dict)
@@ -60,9 +91,26 @@ def _assert_public_response_contract(body: dict[str, Any]) -> None:
     assert isinstance(body["meta"], dict)
     assert isinstance(body["debug_info"], dict)
 
-    assert set(body["meta"]) == {"result_count", "limit", "contract_version"}
+    assert body["returned_count"] == len(body["best_matches"])
+    assert body["offset"] >= 0
+
+    assert set(body["meta"]) == {
+        "result_count",
+        "limit",
+        "offset",
+        "total_candidates",
+        "returned_count",
+        "has_more",
+        "next_offset",
+        "contract_version",
+    }
     assert body["meta"]["contract_version"] == "recommendation_public_v1"
-    assert body["meta"]["limit"] == 10
+    assert body["meta"]["limit"] == body["limit"]
+    assert body["meta"]["offset"] == body["offset"]
+    assert body["meta"]["total_candidates"] == body["total_candidates"]
+    assert body["meta"]["returned_count"] == body["returned_count"]
+    assert body["meta"]["has_more"] == body["has_more"]
+    assert body["meta"]["next_offset"] == body["next_offset"]
     assert body["meta"]["result_count"] == len(body["best_matches"])
 
     assert set(body["debug_info"]) == {
@@ -130,6 +178,143 @@ def test_valid_nextjs_payload_is_parsed_and_returns_contract(
         "score_breakdown",
     }
     assert match["_explanation"]["score_breakdown"]["total_score"] == match["_score"]
+
+
+def test_default_pagination_uses_env_limit_and_zero_offset(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECOMMENDATION_DEFAULT_LIMIT", "7")
+    monkeypatch.setenv("RECOMMENDATION_MAX_LIMIT", "100")
+    _stub_ranked_products(monkeypatch, _ranked_products(20))
+
+    response = api_client.post("/api/v1/recommend", json=nextjs_recommendation_payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_candidates"] == 20
+    assert body["returned_count"] == 7
+    assert body["limit"] == 7
+    assert body["offset"] == 0
+    assert body["has_more"] is True
+    assert body["next_offset"] == 7
+    assert [item["product_id"] for item in body["best_matches"]] == [
+        f"gift-{index:03d}" for index in range(7)
+    ]
+
+
+def test_limit_and_offset_return_first_page_metadata(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_ranked_products(monkeypatch, _ranked_products(60))
+    payload = {**nextjs_recommendation_payload, "limit": 24, "offset": 0}
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["returned_count"] == 24
+    assert body["has_more"] is True
+    assert body["next_offset"] == 24
+    assert [item["product_id"] for item in body["best_matches"]] == [
+        f"gift-{index:03d}" for index in range(24)
+    ]
+
+
+def test_offset_returns_next_page_without_duplicates(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ranked = _ranked_products(60)
+    _stub_ranked_products(monkeypatch, ranked)
+    first_payload = {**nextjs_recommendation_payload, "limit": 24, "offset": 0}
+    second_payload = {**nextjs_recommendation_payload, "limit": 24, "offset": 24}
+
+    first = api_client.post("/api/v1/recommend", json=first_payload).json()
+    second_response = api_client.post("/api/v1/recommend", json=second_payload)
+
+    assert second_response.status_code == 200
+    second = second_response.json()
+    assert [item["product_id"] for item in second["best_matches"]] == [
+        f"gift-{index:03d}" for index in range(24, 48)
+    ]
+    assert {
+        item["product_id"] for item in first["best_matches"]
+    }.isdisjoint({item["product_id"] for item in second["best_matches"]})
+
+
+def test_offset_near_end_returns_short_final_page(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_ranked_products(monkeypatch, _ranked_products(180))
+    payload = {**nextjs_recommendation_payload, "limit": 24, "offset": 168}
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["returned_count"] == 12
+    assert body["has_more"] is False
+    assert body["next_offset"] is None
+    assert [item["product_id"] for item in body["best_matches"]] == [
+        f"gift-{index:03d}" for index in range(168, 180)
+    ]
+
+
+def test_limit_above_max_is_clamped(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECOMMENDATION_MAX_LIMIT", "5")
+    _stub_ranked_products(monkeypatch, _ranked_products(20))
+    payload = {**nextjs_recommendation_payload, "limit": 50, "offset": 0}
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 5
+    assert body["returned_count"] == 5
+    assert body["next_offset"] == 5
+
+
+def test_negative_offset_is_rejected(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+) -> None:
+    response = api_client.post(
+        "/api/v1/recommend",
+        json={**nextjs_recommendation_payload, "offset": -1},
+    )
+
+    assert response.status_code == 422
+    assert ("body", "offset") in {
+        tuple(error["loc"]) for error in response.json()["detail"]
+    }
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_non_positive_limit_is_rejected(
+    api_client: TestClient,
+    nextjs_recommendation_payload: dict[str, Any],
+    limit: int,
+) -> None:
+    response = api_client.post(
+        "/api/v1/recommend",
+        json={**nextjs_recommendation_payload, "limit": limit},
+    )
+
+    assert response.status_code == 422
+    assert ("body", "limit") in {
+        tuple(error["loc"]) for error in response.json()["detail"]
+    }
 
 
 def test_camel_case_payload_is_rejected(

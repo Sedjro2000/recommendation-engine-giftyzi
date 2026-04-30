@@ -129,6 +129,8 @@ class RecommendRequest(BaseModel):
     hard_filters: HardFilters = Field(default_factory=HardFilters)
     soft_tags: SoftTags = Field(default_factory=SoftTags)
     facet_weights: FacetWeights = Field(default_factory=FacetWeights)
+    limit: int | None = Field(default=None, gt=0, strict=True)
+    offset: int | None = Field(default=None, ge=0, strict=True)
 
 
 class HealthResponse(BaseModel):
@@ -239,7 +241,12 @@ class RecommendationMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     result_count: int = Field(..., ge=0)
-    limit: int | None = Field(default=None, ge=0)
+    limit: int = Field(..., gt=0)
+    offset: int = Field(default=0, ge=0)
+    total_candidates: int = Field(default=0, ge=0)
+    returned_count: int = Field(default=0, ge=0)
+    has_more: bool = False
+    next_offset: int | None = Field(default=None, ge=0)
     contract_version: str = "recommendation_public_v1"
 
 
@@ -256,6 +263,12 @@ class RecommendationDebugInfo(BaseModel):
 class RecommendResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    total_candidates: int = Field(..., ge=0)
+    returned_count: int = Field(..., ge=0)
+    limit: int = Field(..., gt=0)
+    offset: int = Field(..., ge=0)
+    has_more: bool
+    next_offset: int | None = Field(default=None, ge=0)
     query_interpretation: QueryInterpretation
     hard_constraints: HardConstraints
     soft_preferences: SoftPreferences

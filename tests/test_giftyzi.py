@@ -34,6 +34,7 @@ from app.api.schemas import (
 from app.config.facets import HARD_FACET_SLUGS, OUT_OF_SCOPE_FACET_SLUGS, SIMILARITY_FACETS, SOFT_FACET_SLUGS
 from app.config.similarity_loader import get_similarity, load_all_similarity_tables
 from app.services.matcher import compute_match
+from app.services import recommendation_service
 from app.services.recommendation_service import apply_hard_filters, compute_soft_score, rank_products
 from app.services.suggestion_builder import (
     build_global_explanation,
@@ -53,6 +54,12 @@ BASE_PAYLOAD: dict = {
 }
 
 PUBLIC_RESPONSE_KEYS = {
+    "total_candidates",
+    "returned_count",
+    "limit",
+    "offset",
+    "has_more",
+    "next_offset",
     "query_interpretation",
     "hard_constraints",
     "soft_preferences",
@@ -352,6 +359,12 @@ def test_schema_phase8bis_unknown_fields_rejected() -> None:
 
 def test_schema_recommend_response_accepts_global_explanation() -> None:
     response = RecommendResponse(
+        total_candidates=0,
+        returned_count=0,
+        limit=24,
+        offset=0,
+        has_more=False,
+        next_offset=None,
         query_interpretation={
             "normalized_query": None,
             "detected_signals": {"budget_max": BUDGET_MAX},
@@ -376,7 +389,15 @@ def test_schema_recommend_response_accepts_global_explanation() -> None:
         relaxations_applied=[],
         suggested_reformulations=[],
         fallback=None,
-        meta={"result_count": 0, "limit": 10},
+        meta={
+            "result_count": 0,
+            "limit": 24,
+            "offset": 0,
+            "total_candidates": 0,
+            "returned_count": 0,
+            "has_more": False,
+            "next_offset": None,
+        },
         debug_info={
             "scoring_formula": "similarity * product_intensity * user_intensity * facet_weight",
             "stock_filter": "stock > 0",
@@ -1161,6 +1182,120 @@ def test_rank_descending_order(bijou_product: dict, sim_tables: dict) -> None:
     assert ranked[0]["name"] == "T_Bijou anniversaire"
 
 
+def _stub_recommendation_products(
+    monkeypatch: pytest.MonkeyPatch,
+    products: list[dict],
+) -> None:
+    monkeypatch.setattr(recommendation_service, "get_db", lambda: object())
+    monkeypatch.setattr(
+        recommendation_service,
+        "fetch_candidate_products",
+        lambda *args, **kwargs: products,
+    )
+    monkeypatch.setattr(
+        recommendation_service,
+        "load_all_similarity_tables",
+        lambda: {},
+    )
+
+
+def test_resolve_pagination_default_limit_comes_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECOMMENDATION_DEFAULT_LIMIT", "24")
+    monkeypatch.setenv("RECOMMENDATION_MAX_LIMIT", "100")
+    monkeypatch.delenv("RECOMMENDATION_RESULT_LIMIT", raising=False)
+
+    limit, offset = recommendation_service.resolve_pagination(
+        RecommendRequest(status="active")
+    )
+
+    assert limit == 24
+    assert offset == 0
+
+
+def test_resolve_pagination_clamps_limit_to_max(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RECOMMENDATION_DEFAULT_LIMIT", "24")
+    monkeypatch.setenv("RECOMMENDATION_MAX_LIMIT", "5")
+
+    limit, offset = recommendation_service.resolve_pagination(
+        RecommendRequest(status="active", limit=50, offset=2)
+    )
+
+    assert limit == 5
+    assert offset == 2
+
+
+def test_get_recommendations_returns_all_ranked_products_before_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    products = [
+        {"_id": f"product-{index:02d}", "name": f"Produit {index}", "stock": 1, "tags": {}}
+        for index in range(12)
+    ]
+    _stub_recommendation_products(monkeypatch, products)
+
+    results = recommendation_service.get_recommendations(RecommendRequest(status="active"))
+
+    assert len(results) == 12
+
+
+def test_pagination_is_applied_after_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    sim_tables: dict,
+) -> None:
+    products = [
+        {
+            "_id": "mongo-first",
+            "product_id": "mongo-first",
+            "name": "Premier MongoDB",
+            "stock": 1,
+            "status": "active",
+            "tags": {"event": [{"slug": "noel", "intensity": 1.0}]},
+        },
+        {
+            "_id": "mongo-second",
+            "product_id": "mongo-second",
+            "name": "Deuxieme MongoDB",
+            "stock": 1,
+            "status": "active",
+            "tags": {"event": [{"slug": "juste-faire-plaisir", "intensity": 1.0}]},
+        },
+        {
+            "_id": "mongo-last-best",
+            "product_id": "mongo-last-best",
+            "name": "Meilleur score",
+            "stock": 1,
+            "status": "active",
+            "tags": {"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+        },
+    ]
+    monkeypatch.setattr(recommendation_service, "get_db", lambda: object())
+    monkeypatch.setattr(
+        recommendation_service,
+        "fetch_candidate_products",
+        lambda *args, **kwargs: products,
+    )
+    monkeypatch.setattr(
+        recommendation_service,
+        "load_all_similarity_tables",
+        lambda: sim_tables,
+    )
+    request = RecommendRequest(
+        status="active",
+        limit=1,
+        soft_tags={"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    )
+
+    response = recommendation_service.build_recommendation_response(request)
+
+    assert response.total_candidates == 3
+    assert response.returned_count == 1
+    assert response.best_matches[0]["product_id"] == "mongo-last-best"
+
+
 @pytest.mark.parametrize(
     ("facet", "requested_slug", "winning_slug", "losing_slug"),
     [
@@ -1268,6 +1403,12 @@ def test_intensity_policy_factor_4x(bijou_product: dict, sim_tables: dict) -> No
 
 def _assert_public_response_shape(body: dict) -> None:
     assert set(body) == PUBLIC_RESPONSE_KEYS
+    assert isinstance(body["total_candidates"], int)
+    assert isinstance(body["returned_count"], int)
+    assert isinstance(body["limit"], int)
+    assert isinstance(body["offset"], int)
+    assert isinstance(body["has_more"], bool)
+    assert body["next_offset"] is None or isinstance(body["next_offset"], int)
     assert isinstance(body["query_interpretation"], dict)
     assert isinstance(body["hard_constraints"], dict)
     assert isinstance(body["soft_preferences"], dict)
@@ -1280,7 +1421,12 @@ def _assert_public_response_shape(body: dict) -> None:
     assert isinstance(body["debug_info"], dict)
     assert body["meta"]["contract_version"] == "recommendation_public_v1"
     assert body["meta"]["result_count"] == len(body["best_matches"])
-    assert body["meta"]["limit"] == 10
+    assert body["meta"]["limit"] == body["limit"]
+    assert body["meta"]["offset"] == body["offset"]
+    assert body["meta"]["total_candidates"] == body["total_candidates"]
+    assert body["meta"]["returned_count"] == body["returned_count"]
+    assert body["meta"]["has_more"] == body["has_more"]
+    assert body["meta"]["next_offset"] == body["next_offset"]
     assert body["debug_info"]["stock_filter"] == "stock > 0"
     assert body["debug_info"]["exact_match_score"] == 1.0
     assert body["debug_info"]["suggestion_builder_enabled"] is True
@@ -1311,7 +1457,7 @@ def test_recommend_endpoint_valid(
     assert resp.status_code == 200
     body = resp.json()
     _assert_public_response_shape(body)
-    assert len(body["best_matches"]) <= 10
+    assert len(body["best_matches"]) <= body["limit"]
     assert body["fallback"] is None
     assert body["relaxations_applied"] == []
     assert body["hard_constraints"]["budget_max"] == BUDGET_MAX

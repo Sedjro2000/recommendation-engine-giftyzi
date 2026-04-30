@@ -88,18 +88,46 @@ POST /api/v1/recommend
 
 ```json
 {
-  "query": "cadeau anniversaire",
-  "budget_max": 10000
+  "status": "active",
+  "budget_max": 10000,
+  "limit": 24,
+  "offset": 0
 }
 ```
 
 `budget_max`, `theme` et `gift_benefit` peuvent être omis dans le payload.
 Quand ils sont fournis, leur rôle dans le filtrage ou le scoring reste inchangé.
 
+`limit` et `offset` pilotent une pagination stateless. La pagination est
+appliquée après récupération des candidats, filtres HARD, scoring et ranking.
+
+```env
+RECOMMENDATION_DEFAULT_LIMIT=24
+RECOMMENDATION_MAX_LIMIT=100
+```
+
+Pour demander la page suivante, renvoyer les mêmes critères métier avec
+`offset` égal au `next_offset` reçu :
+
+```json
+{
+  "status": "active",
+  "budget_max": 10000,
+  "limit": 24,
+  "offset": 24
+}
+```
+
 ### Output
 
 ```json
 {
+  "total_candidates": 180,
+  "returned_count": 24,
+  "limit": 24,
+  "offset": 0,
+  "has_more": true,
+  "next_offset": 24,
   "best_matches": [
     {
       "name": "Produit",

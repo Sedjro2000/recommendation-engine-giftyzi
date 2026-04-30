@@ -29,10 +29,115 @@ from app.services.suggestion_builder import (
 
 logger = logging.getLogger(__name__)
 
-TOP_N = 10
+DEFAULT_RECOMMENDATION_LIMIT = 24
+MAX_RECOMMENDATION_LIMIT = 100
+RECOMMENDATION_DEFAULT_LIMIT_ENV = "RECOMMENDATION_DEFAULT_LIMIT"
+RECOMMENDATION_MAX_LIMIT_ENV = "RECOMMENDATION_MAX_LIMIT"
+LEGACY_RECOMMENDATION_LIMIT_ENV = "RECOMMENDATION_RESULT_LIMIT"
 KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
 NEUTRAL_FACET_WEIGHT = 1.0
 PUBLIC_CONTRACT_VERSION = "recommendation_public_v1"
+
+
+def _read_positive_int_env(env_name: str, fallback: int) -> int:
+    raw_value = os.getenv(env_name)
+    if raw_value is None or raw_value.strip() == "":
+        return fallback
+
+    try:
+        value = int(raw_value.strip())
+    except ValueError:
+        logger.warning(
+            "[Config] Invalid %s=%r; falling back to %s.",
+            env_name,
+            raw_value,
+            fallback,
+        )
+        return fallback
+
+    if value <= 0:
+        logger.warning(
+            "[Config] Invalid %s=%r; falling back to %s.",
+            env_name,
+            raw_value,
+            fallback,
+        )
+        return fallback
+
+    return value
+
+
+def get_recommendation_max_limit() -> int:
+    return _read_positive_int_env(
+        RECOMMENDATION_MAX_LIMIT_ENV,
+        MAX_RECOMMENDATION_LIMIT,
+    )
+
+
+def get_recommendation_default_limit() -> int:
+    max_limit = get_recommendation_max_limit()
+    raw_limit = os.getenv(RECOMMENDATION_DEFAULT_LIMIT_ENV)
+    if raw_limit is not None and raw_limit.strip() != "":
+        return min(
+            _read_positive_int_env(
+                RECOMMENDATION_DEFAULT_LIMIT_ENV,
+                DEFAULT_RECOMMENDATION_LIMIT,
+            ),
+            max_limit,
+        )
+
+    legacy_limit = os.getenv(LEGACY_RECOMMENDATION_LIMIT_ENV)
+    if legacy_limit is None or legacy_limit.strip() == "":
+        return min(DEFAULT_RECOMMENDATION_LIMIT, max_limit)
+
+    normalized = legacy_limit.strip().lower()
+    if normalized in {"0", "all", "none", "unlimited"}:
+        logger.warning(
+            "[Config] %s=%r is deprecated and unbounded; using %s=%s instead.",
+            LEGACY_RECOMMENDATION_LIMIT_ENV,
+            legacy_limit,
+            RECOMMENDATION_DEFAULT_LIMIT_ENV,
+            DEFAULT_RECOMMENDATION_LIMIT,
+        )
+        return min(DEFAULT_RECOMMENDATION_LIMIT, max_limit)
+
+    try:
+        limit = int(legacy_limit.strip())
+    except ValueError:
+        logger.warning(
+            "[Config] Invalid %s=%r; falling back to %s.",
+            LEGACY_RECOMMENDATION_LIMIT_ENV,
+            legacy_limit,
+            DEFAULT_RECOMMENDATION_LIMIT,
+        )
+        return min(DEFAULT_RECOMMENDATION_LIMIT, max_limit)
+
+    if limit <= 0:
+        logger.warning(
+            "[Config] Invalid %s=%r; falling back to %s.",
+            LEGACY_RECOMMENDATION_LIMIT_ENV,
+            legacy_limit,
+            DEFAULT_RECOMMENDATION_LIMIT,
+        )
+        return min(DEFAULT_RECOMMENDATION_LIMIT, max_limit)
+
+    logger.warning(
+        "[Config] %s is deprecated; use %s instead.",
+        LEGACY_RECOMMENDATION_LIMIT_ENV,
+        RECOMMENDATION_DEFAULT_LIMIT_ENV,
+    )
+    return min(limit, max_limit)
+
+
+def resolve_pagination(request: RecommendRequest) -> tuple[int, int]:
+    max_limit = get_recommendation_max_limit()
+    requested_limit = (
+        request.limit
+        if request.limit is not None
+        else get_recommendation_default_limit()
+    )
+
+    return min(requested_limit, max_limit), request.offset or 0
 
 
 def get_facet_weight(facet_weights: FacetWeights, facet: str) -> float:
@@ -177,8 +282,8 @@ def rank_products(
 
     Sort key (tuple, ascending):
         1. -_score           → highest score first
-        2. str(_id or name)  → stable tie-breaker; _id (MongoDB ObjectId as string)
-                               takes priority; falls back to name for in-memory data.
+        2. str(product_id or _id or name)  → stable tie-breaker; product_id
+                                             takes priority when available.
 
     Guarantees:
     - Same input always produces same output (no random, no dict-order dependency)
@@ -192,7 +297,7 @@ def rank_products(
     scored.sort(
         key=lambda p: (
             -p["_score"],
-            str(p.get("_id", p.get("name", ""))),
+            str(p.get("product_id", p.get("_id", p.get("name", "")))),
         )
     )
     logger.debug(f"[rank_products] Ranked {len(scored)} products.")
@@ -206,7 +311,7 @@ def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
          price <= request.budget_max, stock > 0, status == request.status
       2. Apply request-level hard filters: age_group, recipient_gender
       3. Score candidates using soft_tags and facet_weights (Étapes 4-5)
-      4. Return top N results, sorted by score descending
+      4. Return all ranked results; pagination is applied by the response layer
     """
     db = get_db()
     collection_name = os.getenv(
@@ -237,9 +342,8 @@ def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
     tables = load_all_similarity_tables()
     products = rank_products(products, request.soft_tags, request.facet_weights, tables)
 
-    top = products[:TOP_N]
-    logger.debug(f"[Service] Returning top {len(top)} recommendations (TOP_N={TOP_N}).")
-    return top
+    logger.debug("[Service] Returning %s ranked recommendations.", len(products))
+    return products
 
 
 def _soft_tag_slugs(soft_tags: SoftTags, facet: str) -> list[str] | None:
@@ -338,11 +442,18 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
     The scoring pipeline remains delegated to get_recommendations(); this layer
     only exposes the public API contract around the already-ranked matches.
     """
-    best_matches = _with_minimal_explanations(get_recommendations(request), request)
+    ranked_matches = _with_minimal_explanations(get_recommendations(request), request)
+    total_candidates = len(ranked_matches)
+    limit, offset = resolve_pagination(request)
+    best_matches = ranked_matches[offset : offset + limit]
+    returned_count = len(best_matches)
+    has_more = offset + returned_count < total_candidates
+    next_offset = offset + returned_count if has_more else None
+
     explanation = build_global_explanation(request)
     suggested_reformulations = build_suggested_reformulations(
         request,
-        result_count=len(best_matches),
+        result_count=returned_count,
     )
     related_ideas = build_related_ideas(request)
 
@@ -378,13 +489,19 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
         facet_weights=_present_facet_weights(request.facet_weights),
     )
     fallback = None
-    if not best_matches:
+    if total_candidates == 0:
         fallback = RecommendationFallback(
             reason="no_matches",
             message="Aucun produit ne correspond aux contraintes actuelles.",
         )
 
     return RecommendResponse(
+        total_candidates=total_candidates,
+        returned_count=returned_count,
+        limit=limit,
+        offset=offset,
+        has_more=has_more,
+        next_offset=next_offset,
         query_interpretation=query_interpretation,
         hard_constraints=hard_constraints,
         soft_preferences=soft_preferences,
@@ -395,8 +512,13 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
         suggested_reformulations=suggested_reformulations,
         fallback=fallback,
         meta=RecommendationMeta(
-            result_count=len(best_matches),
-            limit=TOP_N,
+            result_count=returned_count,
+            limit=limit,
+            offset=offset,
+            total_candidates=total_candidates,
+            returned_count=returned_count,
+            has_more=has_more,
+            next_offset=next_offset,
             contract_version=PUBLIC_CONTRACT_VERSION,
         ),
         debug_info=RecommendationDebugInfo(
