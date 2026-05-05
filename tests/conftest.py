@@ -165,6 +165,8 @@ def mock_ranked_products() -> list[dict[str, Any]]:
                 "gift_benefit": [{"slug": "emotional", "intensity": 0.9}],
             },
             "_score": 3.42,
+            "score": 0.95,
+            "reason": "Stubbed ranked product.",
         }
     ]
 

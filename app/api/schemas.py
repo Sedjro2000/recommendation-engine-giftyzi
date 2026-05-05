@@ -198,6 +198,7 @@ class RecommendationExplanation(BaseModel):
 class RelatedIdea(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    idea_id: str | None = Field(default=None, min_length=1)
     title: str = Field(..., min_length=1)
     reason: str = Field(..., min_length=1)
     soft_tags: dict[str, list[str]] = Field(default_factory=dict)
@@ -230,6 +231,15 @@ class SuggestedReformulation(BaseModel):
     ]
 
 
+class SimilarityIdea(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: str = Field(..., min_length=1)
+    score: float = Field(..., ge=0.0, le=1.0)
+    reason: str = Field(..., min_length=1)
+    source_product_id: str | None = Field(default=None, min_length=1)
+
+
 class RecommendationFallback(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -257,7 +267,7 @@ class RecommendationDebugInfo(BaseModel):
     stock_filter: str
     exact_match_score: float
     suggestion_builder_enabled: bool = True
-    phase: Literal["8bis"] = "8bis"
+    phase: Literal["8bis", "post_refactor_v1"] = "8bis"
 
 
 class RecommendResponse(BaseModel):
@@ -273,6 +283,7 @@ class RecommendResponse(BaseModel):
     hard_constraints: HardConstraints
     soft_preferences: SoftPreferences
     best_matches: list[dict[str, Any]]
+    similarity_ideas: list[SimilarityIdea] = Field(default_factory=list)
     explanation: RecommendationExplanation
     related_ideas: list[RelatedIdea]
     relaxations_applied: list[dict[str, Any]]

@@ -39,8 +39,11 @@ from app.services.recommendation_service import apply_hard_filters, compute_soft
 from app.services.suggestion_builder import (
     build_global_explanation,
     build_related_ideas,
+    build_related_ideas_with_suggestion_builder,
     build_suggested_reformulations,
     detect_missing_signals,
+    expand_similarity_values,
+    suggestion_builder,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,7 @@ PUBLIC_RESPONSE_KEYS = {
     "hard_constraints",
     "soft_preferences",
     "best_matches",
+    "similarity_ideas",
     "explanation",
     "related_ideas",
     "relaxations_applied",
@@ -377,6 +381,7 @@ def test_schema_recommend_response_accepts_global_explanation() -> None:
         },
         soft_preferences={"facet_weights": {}},
         best_matches=[],
+        similarity_ideas=[],
         explanation={
             "summary": "Recherche filtrée par contraintes strictes.",
             "used_signals": [
@@ -402,15 +407,16 @@ def test_schema_recommend_response_accepts_global_explanation() -> None:
             "scoring_formula": "similarity * product_intensity * user_intensity * facet_weight",
             "stock_filter": "stock > 0",
             "exact_match_score": 1.0,
-            "suggestion_builder_enabled": True,
-            "phase": "8bis",
+            "suggestion_builder_enabled": False,
+            "phase": "post_refactor_v1",
         },
     )
     assert response.explanation is not None
     assert response.related_ideas == []
     assert response.suggested_reformulations == []
-    assert response.debug_info.suggestion_builder_enabled is True
-    assert response.debug_info.phase == "8bis"
+    assert response.similarity_ideas == []
+    assert response.debug_info.suggestion_builder_enabled is False
+    assert response.debug_info.phase == "post_refactor_v1"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -575,7 +581,8 @@ def test_suggestion_builder_related_ideas_generated_when_soft_signals_missing() 
     assert dumped[0]["soft_tags"] == {"relationship": ["un-proche"]}
     assert dumped[1]["soft_tags"] == {"theme": ["personalized"]}
     for item in dumped:
-        assert set(item) == {"title", "reason", "soft_tags", "hard_filters"}
+        assert set(item) == {"idea_id", "title", "reason", "soft_tags", "hard_filters"}
+        assert item["idea_id"]
         assert item["title"]
         assert item["reason"]
         assert item["hard_filters"] == {}
@@ -616,6 +623,134 @@ def test_suggestion_builder_related_ideas_empty_when_no_signal_missing() -> None
     )
 
     assert build_related_ideas(request) == []
+
+
+def test_suggestion_builder_expands_top_similarity_values(sim_tables: dict) -> None:
+    expanded = expand_similarity_values(
+        "theme",
+        ["romantic"],
+        sim_tables["theme"],
+        top_n=3,
+    )
+
+    assert expanded == {
+        "romantic": 1.0,
+        "luxury": 0.7,
+        "personalized": 0.7,
+    }
+
+
+def test_suggestion_builder_no_longer_scores_or_sorts_candidate_products() -> None:
+    products = [
+        {
+            "_id": "similar",
+            "name": "Similar gift",
+            "tags": {
+                "event": [{"slug": "noel", "intensity": 1.0}],
+                "relationship": [{"slug": "ami", "intensity": 1.0}],
+                "theme": [{"slug": "luxury", "intensity": 1.0}],
+                "gift_benefit": [{"slug": "memorable", "intensity": 1.0}],
+            },
+        },
+        {
+            "_id": "direct",
+            "name": "Direct gift",
+            "tags": {
+                "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                "relationship": [{"slug": "partenaire", "intensity": 1.0}],
+                "theme": [{"slug": "romantic", "intensity": 1.0}],
+                "gift_benefit": [{"slug": "emotional", "intensity": 1.0}],
+            },
+        },
+        {
+            "_id": "unmatched",
+            "name": "Unmatched gift",
+            "tags": {},
+        },
+    ]
+
+    output = suggestion_builder(
+        {
+            "event": "anniversaire",
+            "relation": "partenaire",
+            "tags": ["romantic"],
+            "gift_benefit": ["emotional"],
+        },
+        candidate_products=products,
+    )
+
+    results = output["results"]
+    assert results == []
+    assert output["input"] == {
+        "event": ["anniversaire"],
+        "relationship": ["partenaire"],
+        "theme": ["romantic"],
+        "gift_benefit": ["emotional"],
+    }
+    assert output["expanded_query"]["theme"] == {
+        "romantic": 1.0,
+        "luxury": 0.7,
+        "personalized": 0.7,
+    }
+    assert all("_suggestion_score" not in product for product in products)
+
+
+def test_related_ideas_with_suggestion_builder_wrapper_stays_exploration_only() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    )
+    products = [
+        {
+            "_id": "similar",
+            "name": "Similar gift",
+            "tags": {
+                "event": [{"slug": "noel", "intensity": 1.0}],
+                "relationship": [{"slug": "ami", "intensity": 1.0}],
+                "theme": [{"slug": "luxury", "intensity": 1.0}],
+                "gift_benefit": [{"slug": "memorable", "intensity": 1.0}],
+            },
+        },
+        {
+            "_id": "direct",
+            "name": "Direct gift",
+            "tags": {
+                "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                "relationship": [{"slug": "partenaire", "intensity": 1.0}],
+                "theme": [{"slug": "romantic", "intensity": 1.0}],
+                "gift_benefit": [{"slug": "emotional", "intensity": 1.0}],
+            },
+        },
+    ]
+
+    ideas = build_related_ideas_with_suggestion_builder(request, products)
+
+    assert ideas == build_related_ideas(request)
+    assert [idea.title for idea in ideas] == [
+        "Explorer les cadeaux pour un proche",
+        "Explorer les cadeaux personnalises",
+    ]
+    assert all(idea.idea_id for idea in ideas)
+    assert all(idea.title not in {"Direct gift", "Similar gift"} for idea in ideas)
+    assert all(idea.hard_filters == {} for idea in ideas)
+
+
+def test_related_ideas_fallback_to_existing_logic_when_builder_fails() -> None:
+    request = RecommendRequest(
+        **BASE_PAYLOAD,
+        soft_tags={"event": [{"slug": "anniversaire", "intensity": 1.0}]},
+    )
+    products = [
+        {
+            "_id": "invalid-product",
+            "name": "Invalid product",
+            "tags": {"event": [{"slug": "not-a-real-slug", "intensity": 1.0}]},
+        }
+    ]
+
+    ideas = build_related_ideas_with_suggestion_builder(request, products)
+
+    assert ideas == build_related_ideas(request)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1413,6 +1548,7 @@ def _assert_public_response_shape(body: dict) -> None:
     assert isinstance(body["hard_constraints"], dict)
     assert isinstance(body["soft_preferences"], dict)
     assert isinstance(body["best_matches"], list)
+    assert isinstance(body["similarity_ideas"], list)
     assert isinstance(body["explanation"], dict)
     assert isinstance(body["related_ideas"], list)
     assert isinstance(body["relaxations_applied"], list)
@@ -1429,8 +1565,8 @@ def _assert_public_response_shape(body: dict) -> None:
     assert body["meta"]["next_offset"] == body["next_offset"]
     assert body["debug_info"]["stock_filter"] == "stock > 0"
     assert body["debug_info"]["exact_match_score"] == 1.0
-    assert body["debug_info"]["suggestion_builder_enabled"] is True
-    assert body["debug_info"]["phase"] == "8bis"
+    assert body["debug_info"]["suggestion_builder_enabled"] is False
+    assert body["debug_info"]["phase"] == "post_refactor_v1"
 
 
 def test_health_endpoint() -> None:
@@ -1527,10 +1663,16 @@ def test_recommend_endpoint_returns_suggested_reformulations(
 
     assert first_resp.status_code == 200
     assert second_resp.status_code == 200
-    first = first_resp.json()["suggested_reformulations"]
+    first_body = first_resp.json()
+    first = first_body["suggested_reformulations"]
     second = second_resp.json()["suggested_reformulations"]
 
     assert first == second
+    assert first_body["explanation"]["missing_signals"] == [
+        "relationship",
+        "theme",
+        "gift_benefit",
+    ]
     assert len(first) == 3
     for item in first:
         assert set(item) == {"label", "query", "reason", "source"}
@@ -1566,7 +1708,8 @@ def test_recommend_endpoint_returns_related_ideas(
     assert first == second
     assert len(first) == 2
     for item in first:
-        assert set(item) == {"title", "reason", "soft_tags", "hard_filters"}
+        assert set(item) == {"idea_id", "title", "reason", "soft_tags", "hard_filters"}
+        assert item["idea_id"]
         assert item["title"]
         assert item["reason"]
         assert item["hard_filters"] == {}
