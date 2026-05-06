@@ -47,14 +47,12 @@ def _normalize_projection_doc(doc: dict[str, Any]) -> dict[str, Any]:
 def fetch_candidate_products(
     db: Database,
     budget_max: float | None,
-    status: str = "active",
     collection_name: str = "products",
 ) -> list[dict[str, Any]]:
     """
     Fetch products from MongoDB applying DB-level hard filters:
       - price  <= budget_max   (only when request.budget_max is provided)
       - stock  >  0            (Decision #7: stock=0 => always excluded, not overridable)
-      - status == status       (from request.status; convention: "active" => eligible)
 
     The _id field is excluded from results.
     Pass collection_name to target a non-default collection (e.g. in tests).
@@ -64,7 +62,6 @@ def fetch_candidate_products(
 
     mongo_filter: dict[str, Any] = {
         "stock": {"$gt": 0},
-        "status": status,
     }
     if budget_max is not None:
         mongo_filter["price"] = {"$lte": budget_max}
@@ -77,6 +74,6 @@ def fetch_candidate_products(
     products = [_bson_to_json(doc) for doc in raw_products]
     logger.debug(
         f"[Repository] Hard filters applied → {len(products)} products retrieved "
-        f"(budget_max={budget_max}, status='{status}')."
+        f"(budget_max={budget_max})."
     )
     return products
