@@ -117,6 +117,54 @@ def _product_id(product: dict[str, Any]) -> str:
     return str(product.get("product_id", product.get("_id", product.get("name", ""))))
 
 
+def _build_reason(
+    product: dict[str, Any],
+    request: RecommendationRequest,
+    tables: dict[str, dict[str, dict[str, float]]],
+) -> str:
+    matched_facets: dict[str, str] = {}
+    
+    for facet in KNOWN_FACETS:
+        product_tags = product.get("tags", {}).get(facet, [])
+        if not isinstance(product_tags, list):
+            product_tags = []
+            
+        table = tables.get(facet, {})
+        best_contribution = 0.0
+        best_user_slug = None
+        
+        for user_tag in _soft_tag_items(request.soft_tags, facet):
+            try:
+                similarity, product_intensity = _best_similarity_contribution(
+                    user_tag["slug"],
+                    product_tags,
+                    table,
+                )
+            except ValueError:
+                continue
+                
+            contribution = similarity * product_intensity
+            if contribution > best_contribution and contribution > 0:
+                best_contribution = contribution
+                best_user_slug = user_tag["slug"]
+                
+        if best_user_slug:
+            matched_facets[facet] = best_user_slug.replace("_", " ")
+            
+    if "theme" in matched_facets and "event" in matched_facets:
+        return f"Correspond au thème {matched_facets['theme']} et à l'occasion {matched_facets['event']}."
+    elif "event" in matched_facets:
+        return f"Idéal pour l'occasion {matched_facets['event']}."
+    elif "relationship" in matched_facets:
+        return f"Adapté à un cadeau pour {matched_facets['relationship']}."
+    elif "theme" in matched_facets:
+        return f"Correspond au style {matched_facets['theme']} recherché."
+    elif "gift_benefit" in matched_facets:
+        return f"Offre l'avantage {matched_facets['gift_benefit']}."
+    
+    return "Ce cadeau correspond à votre recherche."
+
+
 def _without_forbidden_fields(product: dict[str, Any]) -> dict[str, Any]:
     forbidden = set(FORBIDDEN_FIELDS)
     return {
@@ -146,6 +194,7 @@ def best_matches_service(
                 **_without_forbidden_fields(product),
                 "product_id": _product_id(product),
                 "score": normalized_score,
+                "reason": _build_reason(product, request, tables),
             }
         )
 
