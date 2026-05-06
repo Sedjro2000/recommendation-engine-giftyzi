@@ -1,5 +1,4 @@
 import logging
-import math
 import os
 from typing import Any
 
@@ -20,12 +19,17 @@ from app.api.schemas import (
 from app.config.similarity_loader import load_all_similarity_tables
 from app.db.client import get_db
 from app.repositories.product_repository import fetch_candidate_products
-from app.services.matcher import compute_match
-from app.services.suggestion_builder import (
+from app.services.exploration_service import build_related_ideas
+from app.services.ranking_service import (
+    compute_soft_score,
+    get_facet_weight,
+    rank_products,
+)
+from app.services.reformulation_service import (
     build_global_explanation,
-    build_related_ideas,
     build_suggested_reformulations,
 )
+from app.services.similarity_service import build_similarity_ideas
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,6 @@ RECOMMENDATION_DEFAULT_LIMIT_ENV = "RECOMMENDATION_DEFAULT_LIMIT"
 RECOMMENDATION_MAX_LIMIT_ENV = "RECOMMENDATION_MAX_LIMIT"
 LEGACY_RECOMMENDATION_LIMIT_ENV = "RECOMMENDATION_RESULT_LIMIT"
 KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
-NEUTRAL_FACET_WEIGHT = 1.0
 PUBLIC_CONTRACT_VERSION = "recommendation_public_v1"
 
 
@@ -140,21 +143,6 @@ def resolve_pagination(request: RecommendRequest) -> tuple[int, int]:
     return min(requested_limit, max_limit), request.offset or 0
 
 
-def get_facet_weight(facet_weights: FacetWeights, facet: str) -> float:
-    """
-    Return the request-provided facet weight or the explicit neutral fallback.
-
-    Next.js is the source of truth for facet weights. When a SOFT facet is used
-    but its weight is absent from the payload, FastAPI applies the neutral
-    fallback 1.0. The fallback is never 0.
-    """
-    raw_weight: float | None = getattr(facet_weights, facet, None)
-    weight: float = raw_weight if raw_weight is not None else NEUTRAL_FACET_WEIGHT
-    if not math.isfinite(weight):
-        raise ValueError(f"facet_weights.{facet} must be finite")
-    return weight
-
-
 def apply_hard_filters(
     products: list[dict[str, Any]],
     hard_filters: HardFilters,
@@ -205,104 +193,6 @@ def apply_hard_filters(
 
     logger.debug(f"[apply_hard_filters] {len(products)} in → {len(result)} out")
     return result
-
-
-def compute_soft_score(
-    product: dict[str, Any],
-    soft_tags: SoftTags,
-    facet_weights: FacetWeights,
-    tables: dict[str, dict[str, dict[str, float]]],
-) -> float:
-    """
-    Multi-facet score driven by soft_tags and facet_weights from the request.
-
-    Formula per facet:
-        facet_score = max(
-            compute_match(user_tag.slug, product.tags[facet], table)
-            * user_tag.intensity
-            * facet_weight
-            for user_tag in soft_tags[facet]
-        )
-    total_score = sum(facet_score for all facets)
-
-    Rules:
-    - soft_tags absent for a facet  => facet contributes 0
-    - product has no tags for facet => match = 0, facet contributes 0
-    - intensity influences score proportionally
-    - facet_weight absent in request  => default 1.0
-    - facet_weight = 0 explicitly     => facet contributes 0
-    - soft_tags are NEVER used as hard filters
-    """
-    product_tags: dict[str, list[dict[str, Any]]] = product.get("tags", {})
-    total: float = 0.0
-
-    for facet in KNOWN_FACETS:
-        user_soft_tags: list[SoftTagItem] | None = getattr(soft_tags, facet, None)
-        if not user_soft_tags:
-            logger.debug(
-                f"[Scoring] '{product.get('name')}' | facet='{facet}' → no user soft_tags, skipped"
-            )
-            continue
-
-        weight = get_facet_weight(facet_weights, facet)
-
-        facet_tags: list[dict[str, Any]] = product_tags.get(facet, [])
-        table: dict[str, dict[str, float]] = tables.get(facet, {})
-
-        best_facet: float = 0.0
-        for user_tag in user_soft_tags:
-            match: float = compute_match(user_tag.slug, facet_tags, table)
-            contribution: float = match * user_tag.intensity * weight
-            logger.debug(
-                f"[Scoring] '{product.get('name')}' | facet='{facet}' "
-                f"user_slug='{user_tag.slug}' intensity={user_tag.intensity} "
-                f"weight={weight} match={match:.4f} contribution={contribution:.4f}"
-            )
-            if contribution > best_facet:
-                best_facet = contribution
-
-        total += best_facet
-        logger.debug(
-            f"[Scoring] '{product.get('name')}' | facet='{facet}' "
-            f"weight={weight} best={best_facet:.4f}"
-        )
-
-    logger.debug(f"[Scoring] '{product.get('name')}' → total score={total:.4f}")
-    return total
-
-
-def rank_products(
-    products: list[dict[str, Any]],
-    soft_tags: SoftTags,
-    facet_weights: FacetWeights,
-    tables: dict[str, dict[str, dict[str, float]]],
-) -> list[dict[str, Any]]:
-    """
-    Score every product with compute_soft_score and return a deterministic sorted list.
-
-    Sort key (tuple, ascending):
-        1. -_score           → highest score first
-        2. str(product_id or _id or name)  → stable tie-breaker; product_id
-                                             takes priority when available.
-
-    Guarantees:
-    - Same input always produces same output (no random, no dict-order dependency)
-    - Equal scores resolved by _id ascending (lexicographic)
-    - No external randomness used
-    """
-    scored = [
-        {**p, "_score": compute_soft_score(p, soft_tags, facet_weights, tables)}
-        for p in products
-    ]
-    scored.sort(
-        key=lambda p: (
-            -p["_score"],
-            str(p.get("product_id", p.get("_id", p.get("name", "")))),
-        )
-    )
-    logger.debug(f"[rank_products] Ranked {len(scored)} products.")
-    return scored
-
 
 def get_recommendations(request: RecommendRequest) -> list[dict[str, Any]]:
     """
@@ -423,6 +313,8 @@ def _with_minimal_explanations(
                     "matched_soft_tags": _matched_soft_tags(product, request.soft_tags),
                     "score_breakdown": {
                         "total_score": product.get("_score", 0.0),
+                        "normalized_score": product.get("score", 0.0),
+                        "max_possible_score": product.get("_max_possible_score", 0.0),
                         "detail_level": "minimal_v1",
                         "formula": (
                             "similarity * product_intensity * "
@@ -451,9 +343,16 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
     next_offset = offset + returned_count if has_more else None
 
     explanation = build_global_explanation(request)
+    top_score = best_matches[0].get("score", 0.0) if best_matches else None
     suggested_reformulations = build_suggested_reformulations(
         request,
         result_count=returned_count,
+        top_score=top_score,
+    )
+    similarity_ideas = build_similarity_ideas(
+        best_matches,
+        ranked_matches,
+        load_all_similarity_tables(),
     )
     related_ideas = build_related_ideas(request)
 
@@ -506,6 +405,7 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
         hard_constraints=hard_constraints,
         soft_preferences=soft_preferences,
         best_matches=best_matches,
+        similarity_ideas=similarity_ideas,
         explanation=explanation,
         related_ideas=related_ideas,
         relaxations_applied=[],
@@ -525,7 +425,7 @@ def build_recommendation_response(request: RecommendRequest) -> RecommendRespons
             scoring_formula="similarity * product_intensity * user_intensity * facet_weight",
             stock_filter="stock > 0",
             exact_match_score=1.0,
-            suggestion_builder_enabled=True,
-            phase="8bis",
+            suggestion_builder_enabled=False,
+            phase="post_refactor_v1",
         ),
     )

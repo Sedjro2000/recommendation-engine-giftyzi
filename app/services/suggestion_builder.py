@@ -1,182 +1,107 @@
 from typing import Any
 
-from app.api.schemas import (
-    RecommendationExplanation,
-    RecommendRequest,
-    RelatedIdea,
-    SuggestedReformulation,
+from app.api.schemas import RecommendRequest, RelatedIdea, SuggestedReformulation
+from app.config.similarity_loader import load_all_similarity_tables
+from app.services.exploration_service import (
+    build_related_ideas,
+    detect_missing_signals,
+)
+from app.services.reformulation_service import (
+    build_global_explanation,
+    build_suggested_reformulations,
+)
+from app.services.similarity_service import (
+    DEFAULT_SIMILARITY_TOP_N,
+    expand_similarity_values,
 )
 
-SOFT_SIGNAL_ORDER: tuple[str, ...] = (
-    "event",
-    "relationship",
-    "theme",
-    "gift_benefit",
-)
-MAX_SUGGESTED_REFORMULATIONS = 3
-MAX_RELATED_IDEAS = 2
 
-REFORMULATION_TEMPLATES: dict[str, dict[str, str]] = {
-    "event": {
-        "label": "Preciser l'occasion",
-        "query": "Cadeau pour un anniversaire",
-        "reason": "L'occasion aide a mieux adapter les idees cadeau.",
-    },
-    "relationship": {
-        "label": "Preciser le lien avec la personne",
-        "query": "Cadeau pour un proche",
-        "reason": "La relation aide a mieux classer les idees cadeau.",
-    },
-    "theme": {
-        "label": "Preciser le style du cadeau",
-        "query": "Cadeau personnalise",
-        "reason": "Le style permet de proposer des idees plus proches de l'intention.",
-    },
-    "gift_benefit": {
-        "label": "Preciser l'effet recherche",
-        "query": "Cadeau memorable",
-        "reason": (
-            "L'effet recherche aide a distinguer un cadeau utile, emotionnel "
-            "ou surprenant."
-        ),
-    },
-}
-
-RELATED_IDEA_TEMPLATES: dict[str, dict[str, Any]] = {
-    "event": {
-        "title": "Explorer les cadeaux sans occasion precise",
-        "reason": (
-            "L'occasion n'est pas encore precisee. Une piste plus generale "
-            "peut aider a explorer des idees cadeau."
-        ),
-        "soft_tags": {"event": ["juste-faire-plaisir"]},
-    },
-    "relationship": {
-        "title": "Explorer les cadeaux pour un proche",
-        "reason": (
-            "Le lien avec la personne n'est pas encore precise. Une piste "
-            "generale peut aider a rester pertinent sans modifier les contraintes."
-        ),
-        "soft_tags": {"relationship": ["un-proche"]},
-    },
-    "theme": {
-        "title": "Explorer les cadeaux personnalises",
-        "reason": (
-            "Le style du cadeau n'est pas encore precise. Les cadeaux "
-            "personnalises peuvent aider a mieux adapter la recommandation."
-        ),
-        "soft_tags": {"theme": ["personalized"]},
-    },
-    "gift_benefit": {
-        "title": "Explorer les cadeaux memorables",
-        "reason": (
-            "L'effet recherche n'est pas encore precise. Les cadeaux memorables "
-            "sont souvent pertinents dans un contexte cadeau."
-        ),
-        "soft_tags": {"gift_benefit": ["memorable"]},
-    },
-}
-
-
-def _soft_tag_slugs(request: RecommendRequest, facet: str) -> list[str]:
-    items = getattr(request.soft_tags, facet)
-    if not items:
+def _as_slug_list(value: Any) -> list[str]:
+    if value is None:
         return []
-    return [item.slug for item in items]
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        if not all(isinstance(item, str) for item in value):
+            raise ValueError("suggestion builder slugs must be strings")
+        return value
+    raise ValueError("suggestion builder values must be strings or lists of strings")
 
 
-def detect_missing_signals(request: RecommendRequest) -> list[str]:
-    return [
-        facet
-        for facet in SOFT_SIGNAL_ORDER
-        if not _soft_tag_slugs(request, facet)
-    ]
-
-
-def _used_signal(name: str, signal_type: str, values: list[Any]) -> dict[str, Any]:
+def _normalize_suggestion_input(input_data: dict[str, Any]) -> dict[str, list[str]]:
+    """Map legacy builder input names onto the engine facet names."""
     return {
-        "name": name,
-        "type": signal_type,
-        "values": values,
+        "event": _as_slug_list(input_data.get("event")),
+        "relationship": _as_slug_list(
+            input_data.get("relationship", input_data.get("relation"))
+        ),
+        "theme": _as_slug_list(input_data.get("theme", input_data.get("tags"))),
+        "gift_benefit": _as_slug_list(
+            input_data.get(
+                "gift_benefit",
+                input_data.get("benefits", input_data.get("benefit")),
+            )
+        ),
     }
 
 
-def build_global_explanation(request: RecommendRequest) -> RecommendationExplanation:
-    used_signals: list[dict[str, Any]] = [
-        _used_signal("status", "hard", [request.status]),
-    ]
-    hard_constraints_respected = ["stock", "status"]
+def suggestion_builder(
+    input_data: dict[str, Any],
+    *,
+    limit: int = 10,
+    top_n: int = DEFAULT_SIMILARITY_TOP_N,
+    collection_name: str = "ProductRecommendationProjection",
+    candidate_products: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Legacy compatibility facade.
 
-    if request.budget_max is not None:
-        used_signals.append(_used_signal("budget_max", "hard", [request.budget_max]))
-        hard_constraints_respected.insert(0, "budget_max")
-
-    if request.hard_filters.recipient_gender:
-        used_signals.append(
-            _used_signal(
-                "recipient_gender",
-                "hard",
-                request.hard_filters.recipient_gender,
-            )
+    The builder no longer fetches, scores, or ranks products. Product ranking is
+    owned only by ranking_service. This function preserves the legacy expansion
+    output shape for callers that still import it.
+    """
+    del limit, collection_name, candidate_products
+    normalized_input = _normalize_suggestion_input(input_data)
+    tables = load_all_similarity_tables()
+    expanded_query = {
+        facet: expand_similarity_values(
+            facet,
+            slugs,
+            tables.get(facet, {}),
+            top_n=top_n,
         )
-        hard_constraints_respected.append("recipient_gender")
-    if request.hard_filters.age_group:
-        used_signals.append(
-            _used_signal("age_group", "hard", request.hard_filters.age_group)
-        )
-        hard_constraints_respected.append("age_group")
+        for facet, slugs in normalized_input.items()
+    }
 
-    for facet in SOFT_SIGNAL_ORDER:
-        slugs = _soft_tag_slugs(request, facet)
-        if slugs:
-            used_signals.append(_used_signal(facet, "soft", slugs))
-
-    missing_signals = detect_missing_signals(request)
-    summary = (
-        "Recherche filtree par contraintes strictes, puis classee selon les "
-        "preferences cadeau disponibles."
-    )
-
-    return RecommendationExplanation(
-        summary=summary,
-        used_signals=used_signals,
-        missing_signals=missing_signals,
-        hard_constraints_respected=hard_constraints_respected,
-    )
+    return {
+        "input": normalized_input,
+        "expanded_query": expanded_query,
+        "results": [],
+    }
 
 
-def build_suggested_reformulations(
+def suggestionBuilder(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Compatibility wrapper for callers using the legacy camelCase name."""
+    return suggestion_builder(input_data)
+
+
+def build_related_ideas_with_suggestion_builder(
     request: RecommendRequest,
-    result_count: int,
-) -> list[SuggestedReformulation]:
-    suggestions: list[SuggestedReformulation] = []
-    for facet in detect_missing_signals(request):
-        template = REFORMULATION_TEMPLATES[facet]
-        suggestions.append(
-            SuggestedReformulation(
-                label=template["label"],
-                query=template["query"],
-                reason=template["reason"],
-                source="missing_signal",
-            )
-        )
-        if len(suggestions) >= MAX_SUGGESTED_REFORMULATIONS:
-            break
-    return suggestions
+    candidate_products: list[dict[str, Any]],
+) -> list[RelatedIdea]:
+    """Compatibility wrapper; related ideas are exploration templates only."""
+    del candidate_products
+    return build_related_ideas(request)
 
 
-def build_related_ideas(request: RecommendRequest) -> list[RelatedIdea]:
-    ideas: list[RelatedIdea] = []
-    for facet in detect_missing_signals(request):
-        template = RELATED_IDEA_TEMPLATES[facet]
-        ideas.append(
-            RelatedIdea(
-                title=template["title"],
-                reason=template["reason"],
-                soft_tags=template["soft_tags"],
-                hard_filters={},
-            )
-        )
-        if len(ideas) >= MAX_RELATED_IDEAS:
-            break
-    return ideas
+__all__ = [
+    "RelatedIdea",
+    "SuggestedReformulation",
+    "build_global_explanation",
+    "build_related_ideas",
+    "build_related_ideas_with_suggestion_builder",
+    "build_suggested_reformulations",
+    "detect_missing_signals",
+    "expand_similarity_values",
+    "suggestionBuilder",
+    "suggestion_builder",
+]

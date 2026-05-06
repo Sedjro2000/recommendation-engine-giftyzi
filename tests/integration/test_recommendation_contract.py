@@ -17,6 +17,7 @@ PUBLIC_RESPONSE_KEYS = {
     "hard_constraints",
     "soft_preferences",
     "best_matches",
+    "similarity_ideas",
     "explanation",
     "related_ideas",
     "relaxations_applied",
@@ -37,6 +38,8 @@ BEST_MATCH_REQUIRED_KEYS = {
     "recipient_gender",
     "tags",
     "_score",
+    "score",
+    "reason",
     "_explanation",
 }
 
@@ -64,6 +67,8 @@ def _ranked_product(index: int) -> dict[str, Any]:
         "recipient_gender": ["unisex"],
         "tags": {},
         "_score": float(200 - index),
+        "score": 1.0,
+        "reason": "Stubbed ranked product.",
     }
 
 
@@ -83,6 +88,7 @@ def _assert_public_response_contract(body: dict[str, Any]) -> None:
     assert isinstance(body["hard_constraints"], dict)
     assert isinstance(body["soft_preferences"], dict)
     assert isinstance(body["best_matches"], list)
+    assert isinstance(body["similarity_ideas"], list)
     assert isinstance(body["explanation"], dict)
     assert isinstance(body["related_ideas"], list)
     assert isinstance(body["relaxations_applied"], list)
@@ -122,7 +128,8 @@ def _assert_public_response_contract(body: dict[str, Any]) -> None:
     }
     assert body["debug_info"]["stock_filter"] == "stock > 0"
     assert body["debug_info"]["exact_match_score"] == 1.0
-    assert body["debug_info"]["phase"] == "8bis"
+    assert body["debug_info"]["suggestion_builder_enabled"] is False
+    assert body["debug_info"]["phase"] == "post_refactor_v1"
 
 
 def test_valid_nextjs_payload_is_parsed_and_returns_contract(
@@ -167,11 +174,17 @@ def test_valid_nextjs_payload_is_parsed_and_returns_contract(
         "recipient_gender": ["female"],
         "age_group": ["adulte"],
     }
+    assert body["explanation"]["missing_signals"] == []
+    assert body["suggested_reformulations"] == []
 
     match = body["best_matches"][0]
     assert BEST_MATCH_REQUIRED_KEYS.issubset(match)
     assert isinstance(match["product_id"], str)
     assert isinstance(match["_score"], float)
+    assert isinstance(match["score"], float)
+    assert 0.0 <= match["score"] <= 1.0
+    assert isinstance(match["reason"], str)
+    assert match["reason"]
     assert set(match["_explanation"]) == {
         "matched_hard_filters",
         "matched_soft_tags",
