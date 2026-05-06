@@ -4,13 +4,8 @@ from app.schemas.recommendation import (
     RecommendationResponse,
 )
 
-RecommendRequest = RecommendationRequest
-RecommendResponse = RecommendationResponse
-
 __all__ = [
     "HealthResponse",
     "RecommendationRequest",
     "RecommendationResponse",
-    "RecommendRequest",
-    "RecommendResponse",
 ]
