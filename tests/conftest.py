@@ -1,23 +1,10 @@
-"""
-Test fixtures for GIFTYZI.
-
-- Loads DATABASE_URL from app/.env (Atlas connection string).
-- Uses dedicated collection `products_test` — never touches `products`.
-- Session-scoped: insert once, yield to all tests, drop on teardown.
-"""
+"""Test fixtures for GIFTYZI."""
 
 import logging
-import os
-from pathlib import Path
 from typing import Any, Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from dotenv import load_dotenv
-from pymongo import MongoClient
-from pymongo.database import Database
-
-load_dotenv(dotenv_path=Path(__file__).parent.parent / "app" / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +102,92 @@ def _redact_mongo_url(database_url: str) -> str:
     return f"{scheme}://<redacted>@{host_and_path}"
 
 
+class _InsertManyResult:
+    def __init__(self, inserted_ids: list[Any]) -> None:
+        self.inserted_ids = inserted_ids
+
+
+class InMemoryCollection:
+    def __init__(self) -> None:
+        self._docs: list[dict[str, Any]] = []
+
+    def drop(self) -> None:
+        self._docs = []
+
+    def insert_many(self, docs: list[dict[str, Any]]) -> _InsertManyResult:
+        inserted_ids: list[Any] = []
+        start_index = len(self._docs)
+        for index, doc in enumerate(docs):
+            stored = {**doc}
+            stored.setdefault("_id", f"in-memory-{start_index + index}")
+            inserted_ids.append(stored["_id"])
+            self._docs.append(stored)
+        return _InsertManyResult(inserted_ids)
+
+    def insert_one(self, doc: dict[str, Any]):
+        stored = {**doc}
+        stored.setdefault("_id", f"in-memory-{len(self._docs)}")
+        self._docs.append(stored)
+        return type("InsertOneResult", (), {"inserted_id": stored["_id"]})()
+
+    def delete_one(self, query: dict[str, Any]):
+        for index, doc in enumerate(self._docs):
+            if _matches_filter(doc, query):
+                del self._docs[index]
+                return type("DeleteResult", (), {"deleted_count": 1})()
+        return type("DeleteResult", (), {"deleted_count": 0})()
+
+    def find(
+        self,
+        query: dict[str, Any] | None = None,
+        projection: dict[str, int] | None = None,
+    ) -> list[dict[str, Any]]:
+        query = query or {}
+        docs = [
+            _apply_projection({**doc}, projection)
+            for doc in self._docs
+            if _matches_filter(doc, query)
+        ]
+        return docs
+
+
+class InMemoryDatabase:
+    name = "giftyzi_test_memory"
+
+    def __init__(self) -> None:
+        self._collections: dict[str, InMemoryCollection] = {}
+
+    def __getitem__(self, collection_name: str) -> InMemoryCollection:
+        if collection_name not in self._collections:
+            self._collections[collection_name] = InMemoryCollection()
+        return self._collections[collection_name]
+
+
+def _matches_filter(doc: dict[str, Any], query: dict[str, Any]) -> bool:
+    for field, expected in query.items():
+        actual = doc.get(field)
+        if isinstance(expected, dict):
+            if "$gt" in expected and not (actual is not None and actual > expected["$gt"]):
+                return False
+            if "$lte" in expected and not (actual is not None and actual <= expected["$lte"]):
+                return False
+            continue
+        if actual != expected:
+            return False
+    return True
+
+
+def _apply_projection(
+    doc: dict[str, Any],
+    projection: dict[str, int] | None,
+) -> dict[str, Any]:
+    if not projection:
+        return doc
+    if projection.get("_id") == 0:
+        doc.pop("_id", None)
+    return doc
+
+
 @pytest.fixture
 def api_client() -> TestClient:
     from app.main import app
@@ -172,39 +245,14 @@ def mock_ranked_products() -> list[dict[str, Any]]:
 
 
 @pytest.fixture(scope="session")
-def mongo_client() -> Generator[MongoClient, None, None]:
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        pytest.fail("DATABASE_URL is not set. Cannot connect to MongoDB.")
-
-    client = MongoClient(database_url, serverSelectionTimeoutMS=5000)
-    try:
-        client.admin.command("ping")
-        logger.info(f"[conftest] MongoDB ping OK - {_redact_mongo_url(database_url)}")
-    except Exception as exc:
-        pytest.fail(f"MongoDB connection failed: {exc}")
-
-    yield client
-    client.close()
-    logger.info("[conftest] MongoDB client closed.")
-
-
-@pytest.fixture(scope="session")
-def test_db(mongo_client: MongoClient) -> Database:
-    explicit = os.getenv("DB_NAME")
-    if explicit:
-        db = mongo_client[explicit]
-    else:
-        try:
-            db = mongo_client.get_default_database()
-        except Exception:
-            db = mongo_client["giftyzi"]
-    logger.info(f"[conftest] Using database: '{db.name}'")
+def test_db() -> InMemoryDatabase:
+    db = InMemoryDatabase()
+    logger.info("[conftest] Using in-memory Mongo database: '%s'", db.name)
     return db
 
 
 @pytest.fixture(scope="session")
-def inserted_products(test_db: Database) -> Generator[list[dict], None, None]:
+def inserted_products(test_db: InMemoryDatabase) -> Generator[list[dict], None, None]:
     collection = test_db[TEST_COLLECTION]
     collection.drop()
     result = collection.insert_many(TEST_PRODUCTS)
@@ -221,3 +269,11 @@ def inserted_products(test_db: Database) -> Generator[list[dict], None, None]:
 
     collection.drop()
     logger.info(f"[conftest] Cleanup: '{TEST_COLLECTION}' collection dropped.")
+
+
+@pytest.fixture(autouse=True)
+def use_in_memory_app_db(test_db: InMemoryDatabase, monkeypatch: pytest.MonkeyPatch):
+    from app.db import client as db_client
+
+    monkeypatch.setattr(db_client, "_db", test_db)
+    yield
