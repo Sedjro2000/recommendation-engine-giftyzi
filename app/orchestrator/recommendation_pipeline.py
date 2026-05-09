@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from app.core.architecture_guard import ArchitectureGuard
@@ -8,6 +9,9 @@ from app.services.exploration_service import exploration_service
 from app.services.query_understanding_service import query_understanding_service
 from app.services.reformulation_service import reformulation_service
 from app.services.similarity_service import similarity_service
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_response(
@@ -84,4 +88,11 @@ def run_recommendation_pipeline(request: RecommendationRequest) -> Recommendatio
             related_ideas,
         )
         guard.validate_response(response)
+        logger.debug(
+            "[pipeline] Final response.best_matches length=%d (limit=%d, offset=%d, has_more=%s).",
+            len(best_matches),
+            request.limit,
+            request.offset,
+            response.meta.get("has_more"),
+        )
         return response

@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from app.config.similarity_loader import load_all_similarity_tables
@@ -7,6 +8,8 @@ from app.core.architecture_guard import (
     assert_no_scoring_outside_best_matches,
 )
 from app.schemas.recommendation import RecommendationRequest
+
+logger = logging.getLogger(__name__)
 
 KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
 
@@ -181,8 +184,15 @@ def best_matches_service(
     assert_service_call_allowed("best_matches")
     assert_no_scoring_outside_best_matches()
     candidates = candidate_generation.get("_candidates", [])
+    logger.debug(
+        "[best_matches] ENTER — %d candidates received (limit=%d, offset=%d).",
+        len(candidates),
+        request.limit,
+        request.offset,
+    )
     tables = load_all_similarity_tables()
     max_possible_score = _max_possible_score(request)
+    logger.debug("[best_matches] max_possible_score=%.4f", max_possible_score)
 
     scored: list[dict[str, Any]] = []
     for product in candidates:
@@ -199,4 +209,23 @@ def best_matches_service(
         )
 
     scored.sort(key=lambda product: (-product["score"], _product_id(product)))
-    return scored[request.offset : request.offset + request.limit]
+    logger.debug(
+        "[best_matches] %d products scored and sorted.",
+        len(scored),
+    )
+    logger.debug(
+        "[best_matches] Scored product IDs (all): %s",
+        [_product_id(p) for p in scored],
+    )
+    page = scored[request.offset : request.offset + request.limit]
+    logger.debug(
+        "[best_matches] SLICE [%d:%d] → %d products returned to response.",
+        request.offset,
+        request.offset + request.limit,
+        len(page),
+    )
+    logger.debug(
+        "[best_matches] Returned product IDs: %s",
+        [_product_id(p) for p in page],
+    )
+    return page
