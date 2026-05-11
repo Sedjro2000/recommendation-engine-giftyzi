@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from app.config.facets import SOFT_FACET_DEFAULT_WEIGHTS, SOFT_FACET_SLUGS
 from app.core.architecture_guard import ArchitectureGuard, ArchitectureGuardError
 from app.orchestrator import recommendation_pipeline
 from app.schemas.recommendation import RecommendationRequest
@@ -41,12 +42,14 @@ def _payload() -> dict[str, Any]:
             "relationship": [{"slug": "partenaire", "intensity": 1.0}],
             "theme": [{"slug": "romantic", "intensity": 1.0}],
             "gift_benefit": [{"slug": "emotional", "intensity": 1.0}],
+            "gift_type": [{"slug": "coffret", "intensity": 1.0}],
         },
         "facet_weights": {
             "event": 1.0,
             "relationship": 1.0,
             "theme": 1.0,
             "gift_benefit": 1.0,
+            "gift_type": 20.0,
         },
         "limit": 2,
         "offset": 0,
@@ -67,6 +70,7 @@ def _candidate(index: int, *, score_slug: str = "anniversaire") -> dict[str, Any
             "relationship": [{"slug": "partenaire", "intensity": 1.0}],
             "theme": [{"slug": "romantic", "intensity": 1.0}],
             "gift_benefit": [{"slug": "emotional", "intensity": 1.0}],
+            "gift_type": [{"slug": "coffret", "intensity": 1.0}],
         },
     }
 
@@ -101,6 +105,8 @@ def test_recommendation_endpoint_returns_strict_v1_contract(
             "event": ["anniversaire"],
             "relationship": ["partenaire"],
             "theme": ["romantic"],
+            "gift_benefit": ["emotional"],
+            "gift_type": ["coffret"],
         },
         "confidence": {},
         "missing_signals": [],
@@ -177,6 +183,8 @@ def test_missing_signals_drive_guidance_without_product_output(
         "event",
         "relationship",
         "theme",
+        "gift_benefit",
+        "gift_type",
     ]
     assert all("product_id" not in idea for idea in body["related_ideas"])
     assert body["suggested_reformulations"] == [
@@ -224,7 +232,13 @@ def test_architecture_guard_rejects_forbidden_response_fields() -> None:
 
     response = {
         "query_understanding": {
-            "detected_signals": {"event": [], "relationship": [], "theme": []},
+            "detected_signals": {
+                "event": [],
+                "relationship": [],
+                "theme": [],
+                "gift_benefit": [],
+                "gift_type": [],
+            },
             "confidence": {},
             "missing_signals": [],
         },
@@ -262,3 +276,37 @@ def test_services_cannot_be_called_directly_outside_pipeline() -> None:
         assert "must be called through recommendation pipeline" in str(exc)
     else:
         raise AssertionError("ArchitectureGuardError was not raised.")
+
+
+def test_recommendation_contract_rejects_unknown_gift_type(api_client: TestClient) -> None:
+    payload = _payload()
+    payload["soft_tags"]["gift_type"] = [{"slug": "random", "intensity": 1.0}]
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 422
+    assert "gift_type" in response.text
+
+
+def test_gift_type_facet_registry_and_weight_are_configured() -> None:
+    assert SOFT_FACET_SLUGS["gift_type"] == frozenset(
+        {"coffret", "kit", "gift_card", "subscription", "experience"}
+    )
+    assert SOFT_FACET_DEFAULT_WEIGHTS["gift_type"] == 20.0
+    assert SOFT_FACET_DEFAULT_WEIGHTS["gift_type"] > SOFT_FACET_DEFAULT_WEIGHTS["theme"]
+    assert (
+        SOFT_FACET_DEFAULT_WEIGHTS["gift_type"]
+        > SOFT_FACET_DEFAULT_WEIGHTS["gift_benefit"]
+    )
+
+
+def test_recommendation_contract_rejects_non_taxonomy_gift_type_weight(
+    api_client: TestClient,
+) -> None:
+    payload = _payload()
+    payload["facet_weights"]["gift_type"] = 19.0
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 422
+    assert "facet_weights.gift_type" in response.text

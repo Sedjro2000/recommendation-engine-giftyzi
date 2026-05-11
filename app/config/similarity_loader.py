@@ -3,10 +3,12 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
+from app.config.facets import SIMILARITY_FACETS
+
 logger = logging.getLogger(__name__)
 
 _SIMILARITY_DIR = Path(__file__).parent / "similarity"
-_KNOWN_FACETS = ("event", "relationship", "theme", "gift_benefit")
+_KNOWN_FACETS = SIMILARITY_FACETS
 
 
 def load_similarity_table(facet: str) -> dict[str, dict[str, float]]:

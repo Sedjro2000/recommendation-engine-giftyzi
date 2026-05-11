@@ -92,6 +92,23 @@ SOFT_FACET_SLUGS: dict[str, frozenset[str]] = {
             "useful",
         }
     ),
+    "gift_type": frozenset(
+        {
+            "coffret",
+            "kit",
+            "gift_card",
+            "subscription",
+            "experience",
+        }
+    ),
+}
+
+SOFT_FACET_DEFAULT_WEIGHTS: dict[str, float] = {
+    "event": 1.0,
+    "relationship": 1.0,
+    "theme": 1.0,
+    "gift_benefit": 1.0,
+    "gift_type": 20.0,
 }
 
 OUT_OF_SCOPE_FACET_SLUGS: dict[str, frozenset[str]] = {
@@ -136,4 +153,5 @@ SIMILARITY_FACETS: tuple[str, ...] = (
     "relationship",
     "theme",
     "gift_benefit",
+    "gift_type",
 )

@@ -1,0 +1,17 @@
+{
+  "coffret": {
+    "coffret": 1.0
+  },
+  "kit": {
+    "kit": 1.0
+  },
+  "gift_card": {
+    "gift_card": 1.0
+  },
+  "subscription": {
+    "subscription": 1.0
+  },
+  "experience": {
+    "experience": 1.0
+  }
+}

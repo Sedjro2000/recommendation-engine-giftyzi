@@ -1,9 +1,10 @@
 from typing import Any
 
+from app.config.facets import SIMILARITY_FACETS
 from app.config.similarity_loader import load_all_similarity_tables
 from app.core.architecture_guard import assert_service_call_allowed
 
-KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
+KNOWN_FACETS: tuple[str, ...] = SIMILARITY_FACETS
 SIMILARITY_IDEA_LIMIT = 3
 
 

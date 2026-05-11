@@ -44,6 +44,14 @@ EXPECTED_GIFT_BENEFIT_KEYS = {
     "surprising",
 }
 
+EXPECTED_GIFT_TYPE_KEYS = {
+    "coffret",
+    "kit",
+    "gift_card",
+    "subscription",
+    "experience",
+}
+
 
 def _load_table(facet: str) -> dict[str, dict[str, Any]]:
     path = SIMILARITY_DIR / f"{facet}.json"
@@ -59,6 +67,7 @@ def _load_table(facet: str) -> dict[str, dict[str, Any]]:
     [
         ("theme", EXPECTED_THEME_KEYS),
         ("gift_benefit", EXPECTED_GIFT_BENEFIT_KEYS),
+        ("gift_type", EXPECTED_GIFT_TYPE_KEYS),
     ],
 )
 def test_similarity_table_contains_expected_contract_keys(
@@ -71,7 +80,7 @@ def test_similarity_table_contains_expected_contract_keys(
     assert expected_keys == set(SOFT_FACET_SLUGS[facet])
 
 
-@pytest.mark.parametrize("facet", ["theme", "gift_benefit"])
+@pytest.mark.parametrize("facet", ["theme", "gift_benefit", "gift_type"])
 def test_similarity_scores_are_numeric_and_bounded(facet: str) -> None:
     table = _load_table(facet)
 
@@ -88,7 +97,7 @@ def test_similarity_scores_are_numeric_and_bounded(facet: str) -> None:
             )
 
 
-@pytest.mark.parametrize("facet", ["theme", "gift_benefit"])
+@pytest.mark.parametrize("facet", ["theme", "gift_benefit", "gift_type"])
 def test_similarity_table_only_references_known_soft_tags(facet: str) -> None:
     table = _load_table(facet)
     allowed = SOFT_FACET_SLUGS[facet]

@@ -62,7 +62,7 @@ def test_recommend_endpoint_memory_db_returns_real_v1_response(
         "related_ideas",
         "meta",
     }
-    assert body["query_understanding"]["missing_signals"] == []
+    assert body["query_understanding"]["missing_signals"] == ["gift_type"]
     assert body["suggested_reformulations"] == []
     assert body["related_ideas"] == []
     assert body["candidate_generation"]["total_candidates"] == 4
@@ -125,6 +125,8 @@ def test_recommend_endpoint_memory_db_returns_guidance_when_query_is_sparse(
         "event",
         "relationship",
         "theme",
+        "gift_benefit",
+        "gift_type",
     ]
     assert body["suggested_reformulations"] == [
         {
@@ -216,3 +218,139 @@ def test_recommend_endpoint_memory_projection_returns_tagged_suggestion(
     assert matches[0]["recipient_gender"] == ["unisex"]
     assert matches[0]["score"] == pytest.approx(1.0)
     assert "_score" not in matches[0]
+
+
+def test_recommend_endpoint_projection_gift_type_boosts_matching_product(
+    api_client: TestClient,
+    test_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", PROJECTION_COLLECTION)
+    test_db[PROJECTION_COLLECTION].drop()
+    test_db[PROJECTION_COLLECTION].insert_many(
+        [
+            {
+                "_id": "projection-gift-type-a",
+                "name": "Projection Coffret",
+                "price": 30.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                    "gift_type": [{"slug": "coffret", "intensity": 1.0}],
+                },
+            },
+            {
+                "_id": "projection-gift-type-b",
+                "name": "Projection Sans Gift Type",
+                "price": 30.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+        ]
+    )
+
+    payload = _full_payload(
+        budget_max=40.0,
+        hard_filters={
+            "age_group": ["adulte"],
+            "recipient_gender": ["unisex"],
+        },
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "gift_type": [{"slug": "coffret", "intensity": 1.0}],
+        },
+        facet_weights={
+            "event": 1.0,
+            "gift_type": 20.0,
+        },
+    )
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    matches = body["best_matches"]
+    assert [match["_id"] for match in matches] == [
+        "projection-gift-type-a",
+        "projection-gift-type-b",
+    ]
+    assert matches[0]["score"] > matches[1]["score"]
+    assert body["query_understanding"]["detected_signals"]["gift_type"] == ["coffret"]
+
+
+def test_recommend_endpoint_gift_type_remains_soft_when_no_product_matches(
+    api_client: TestClient,
+    test_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", PROJECTION_COLLECTION)
+    test_db[PROJECTION_COLLECTION].drop()
+    test_db[PROJECTION_COLLECTION].insert_many(
+        [
+            {
+                "_id": "projection-gift-type-soft-a",
+                "name": "Projection Kit",
+                "price": 25.0,
+                "stock": 4,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                    "gift_type": [{"slug": "kit", "intensity": 1.0}],
+                },
+            },
+            {
+                "_id": "projection-gift-type-soft-b",
+                "name": "Projection Sans Format",
+                "price": 19.0,
+                "stock": 4,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+        ]
+    )
+
+    payload = _full_payload(
+        budget_max=40.0,
+        hard_filters={
+            "age_group": ["adulte"],
+            "recipient_gender": ["unisex"],
+        },
+        soft_tags={
+            "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            "gift_type": [{"slug": "coffret", "intensity": 1.0}],
+        },
+        facet_weights={
+            "event": 1.0,
+            "gift_type": 20.0,
+        },
+    )
+
+    response = api_client.post("/api/v1/recommend", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    matches = body["best_matches"]
+    assert [match["_id"] for match in matches] == [
+        "projection-gift-type-soft-a",
+        "projection-gift-type-soft-b",
+    ]
+    assert len(matches) == 2
+    assert all(match["score"] > 0 for match in matches)

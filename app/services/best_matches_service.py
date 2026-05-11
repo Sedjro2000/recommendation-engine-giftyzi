@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from app.config.facets import SIMILARITY_FACETS, SOFT_FACET_DEFAULT_WEIGHTS
 from app.config.similarity_loader import load_all_similarity_tables
 from app.core.architecture_guard import (
     FORBIDDEN_FIELDS,
@@ -11,7 +12,7 @@ from app.schemas.recommendation import RecommendationRequest
 
 logger = logging.getLogger(__name__)
 
-KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
+KNOWN_FACETS: tuple[str, ...] = SIMILARITY_FACETS
 
 
 def _soft_tag_items(soft_tags: dict[str, Any] | None, facet: str) -> list[dict[str, Any]]:
@@ -37,7 +38,7 @@ def _soft_tag_items(soft_tags: dict[str, Any] | None, facet: str) -> list[dict[s
 
 def _facet_weight(facet_weights: dict[str, Any] | None, facet: str) -> float:
     if not facet_weights or facet not in facet_weights:
-        return 1.0
+        return SOFT_FACET_DEFAULT_WEIGHTS.get(facet, 1.0)
     return float(facet_weights[facet])
 
 
@@ -164,6 +165,8 @@ def _build_reason(
         return f"Correspond au style {matched_facets['theme']} recherché."
     elif "gift_benefit" in matched_facets:
         return f"Offre l'avantage {matched_facets['gift_benefit']}."
+    elif "gift_type" in matched_facets:
+        return f"Correspond au format cadeau {matched_facets['gift_type']}."
     
     return "Ce cadeau correspond à votre recherche."
 

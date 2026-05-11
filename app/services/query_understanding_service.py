@@ -1,9 +1,10 @@
 from typing import Any
 
+from app.config.facets import SIMILARITY_FACETS
 from app.core.architecture_guard import assert_service_call_allowed
 from app.schemas.recommendation import RecommendationRequest
 
-SOFT_SIGNAL_ORDER: tuple[str, ...] = ("event", "relationship", "theme")
+SOFT_SIGNAL_ORDER: tuple[str, ...] = SIMILARITY_FACETS
 
 
 def _slugs_from_soft_tags(soft_tags: dict[str, Any] | None, facet: str) -> list[str]:

@@ -5,9 +5,11 @@ from typing import Any
 from bson import ObjectId
 from pymongo.database import Database
 
+from app.config.facets import SIMILARITY_FACETS
+
 logger = logging.getLogger(__name__)
 
-SOFT_TAG_FACETS = {"event", "relationship", "theme", "gift_benefit"}
+SOFT_TAG_FACETS = frozenset(SIMILARITY_FACETS)
 
 
 def _bson_to_json(doc: dict[str, Any]) -> dict[str, Any]:

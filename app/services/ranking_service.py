@@ -3,17 +3,21 @@ import math
 from typing import Any
 
 from app.api.schemas import FacetWeights, SoftTagItem, SoftTags
+from app.config.facets import SIMILARITY_FACETS, SOFT_FACET_DEFAULT_WEIGHTS
 from app.services.matcher import compute_match
 
 logger = logging.getLogger(__name__)
 
-KNOWN_FACETS: tuple[str, ...] = ("event", "relationship", "theme", "gift_benefit")
-NEUTRAL_FACET_WEIGHT = 1.0
+KNOWN_FACETS: tuple[str, ...] = SIMILARITY_FACETS
 
 
 def get_facet_weight(facet_weights: FacetWeights, facet: str) -> float:
     raw_weight: float | None = getattr(facet_weights, facet, None)
-    weight: float = raw_weight if raw_weight is not None else NEUTRAL_FACET_WEIGHT
+    weight: float = (
+        raw_weight
+        if raw_weight is not None
+        else SOFT_FACET_DEFAULT_WEIGHTS.get(facet, 1.0)
+    )
     if not math.isfinite(weight):
         raise ValueError(f"facet_weights.{facet} must be finite")
     return weight
