@@ -354,3 +354,95 @@ def test_recommend_endpoint_gift_type_remains_soft_when_no_product_matches(
     ]
     assert len(matches) == 2
     assert all(match["score"] > 0 for match in matches)
+
+
+def test_recommend_endpoint_projection_collection_excludes_non_active_statuses(
+    api_client: TestClient,
+    test_db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRODUCTS_COLLECTION", PROJECTION_COLLECTION)
+    test_db[PROJECTION_COLLECTION].drop()
+    test_db[PROJECTION_COLLECTION].insert_many(
+        [
+            {
+                "_id": "projection-active",
+                "name": "Projection Active",
+                "status": "active",
+                "price": 20.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+            {
+                "_id": "projection-archived",
+                "name": "Projection Archived",
+                "status": "archived",
+                "price": 20.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+            {
+                "_id": "projection-inactive",
+                "name": "Projection Inactive",
+                "status": "inactive",
+                "price": 20.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+            {
+                "_id": "projection-draft",
+                "name": "Projection Draft",
+                "status": "draft",
+                "price": 20.0,
+                "stock": 5,
+                "hard_filters": {
+                    "age_group": ["adulte"],
+                    "recipient_gender": ["unisex"],
+                },
+                "soft_tags": {
+                    "event": [{"slug": "anniversaire", "intensity": 1.0}],
+                },
+            },
+        ]
+    )
+
+    response = api_client.post(
+        "/api/v1/recommend",
+        json=_full_payload(
+            budget_max=50.0,
+            hard_filters={
+                "age_group": ["adulte"],
+                "recipient_gender": ["unisex"],
+            },
+            soft_tags={
+                "event": [{"slug": "anniversaire", "intensity": 1.0}],
+            },
+            facet_weights={
+                "event": 1.0,
+            },
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    matches = body["best_matches"]
+    assert [match["_id"] for match in matches] == ["projection-active"]
+    assert all(match["status"] == "active" for match in matches)

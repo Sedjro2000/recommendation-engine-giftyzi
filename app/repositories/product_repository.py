@@ -65,6 +65,8 @@ def fetch_candidate_products(
     mongo_filter: dict[str, Any] = {
         "stock": {"$gt": 0},
     }
+    if collection_name == "ProductRecommendationProjection":
+        mongo_filter["status"] = "active"
     if budget_max is not None:
         mongo_filter["price"] = {"$lte": budget_max}
 
